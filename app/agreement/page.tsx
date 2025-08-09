@@ -12,7 +12,6 @@ import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { useToast } from "@/components/ui/use-toast"
 import { Camera, Loader2, Upload, X, FileText } from "lucide-react"
-import Image from "next/image"
 import { createClient } from "@/lib/supabase"
 import { uploadFile } from "@/actions/upload"
 
@@ -89,6 +88,16 @@ export default function AgreementPage() {
     }
   }, [router, toast])
 
+  useEffect(() => {
+    return () => {
+      if (photoPreview && photoPreview.startsWith("blob:")) {
+        try {
+          URL.revokeObjectURL(photoPreview)
+        } catch {}
+      }
+    }
+  }, [photoPreview])
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
@@ -131,40 +140,49 @@ export default function AgreementPage() {
     }
 
     startTransition(async () => {
-      const formData = new FormData()
-      formData.append("file", verificationPhotoFile)
-      formData.append("userId", sessionUserId)
+      try {
+        const formData = new FormData()
+        formData.append("file", verificationPhotoFile)
+        formData.append("userId", sessionUserId)
 
-      // FIX: Added the required 'verification-photos' bucket name argument.
-      const uploadResult = await uploadFile(formData, "verification-photos")
+        // Ensure bucket name is provided
+        const uploadResult = await uploadFile(formData, "verification-photos")
 
-      if (!uploadResult.success || !uploadResult.url) {
-        toast({ title: "Upload Failed", description: uploadResult.message, variant: "destructive" })
-        return
-      }
+        if (!uploadResult.success || !uploadResult.url) {
+          toast({ title: "Upload Failed", description: uploadResult.message, variant: "destructive" })
+          return
+        }
 
-      const supabase = createClient()
-      const { error: updateError } = await supabase
-        .from("users")
-        .update({
-          full_name: fullName,
-          verification_photo_url: uploadResult.url,
-          agreed_to_terms: true,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", sessionUserId)
+        const supabase = createClient()
+        const { error: updateError } = await supabase
+          .from("users")
+          .update({
+            full_name: fullName,
+            verification_photo_url: uploadResult.url,
+            agreed_to_terms: true,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", sessionUserId)
 
-      if (updateError) {
+        if (updateError) {
+          toast({
+            title: "Update Failed",
+            description: `Could not save your agreement. ${updateError.message}`,
+            variant: "destructive",
+          })
+          return
+        }
+
+        toast({ title: "Agreement Complete!", description: "Your account is now pending approval." })
+        router.push("/pending")
+      } catch (err: any) {
+        console.error("[Agreement] Submit error:", err)
         toast({
-          title: "Update Failed",
-          description: `Could not save your agreement. ${updateError.message}`,
+          title: "Unexpected Error",
+          description: err?.message || "An unexpected error occurred. Please try again.",
           variant: "destructive",
         })
-        return
       }
-
-      toast({ title: "Agreement Complete!", description: "Your account is now pending approval." })
-      router.push("/pending")
     })
   }
 
@@ -249,7 +267,7 @@ export default function AgreementPage() {
                 </div>
               ) : (
                 <div className="relative">
-                  <Image
+                  <img
                     src={photoPreview || "/placeholder.svg"}
                     alt="Verification photo preview"
                     width={300}
