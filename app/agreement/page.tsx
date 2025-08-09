@@ -140,7 +140,7 @@ export default function AgreementPage() {
       toast({ title: "Invalid file type", description: "Please select an image file.", variant: "destructive" })
       return
     }
-    if (file.size > 5 * 1024 * 1024) {
+    if (file.size > 25 * 1024 * 1024) {
       toast({
         title: "File too large",
         description: "Please select an image smaller than 5MB.",
