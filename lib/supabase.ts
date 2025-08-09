@@ -1,69 +1,27 @@
+// Universal module that provides a BROWSER Supabase client for Client Components.
+// Do not import this in Server Components; use "@/lib/supabase-server" instead.
+
 import { createBrowserClient } from "@supabase/ssr"
 import type { SupabaseClient } from "@supabase/supabase-js"
 
-// Minimal app User type for rows in public.users
-export type User = {
-  id: string
-  email: string | null
-  full_name?: string | null
-  display_name?: string | null
-  username?: string | null
-  avatar_url?: string | null
-  is_admin?: boolean
-  is_approved?: boolean
-  is_rejected?: boolean
-  agreed_to_terms?: boolean
-  verification_photo_url?: string | null
-  phone_number?: string | null
-  created_at?: string | null
-  updated_at?: string | null
-}
+let browserClient: SupabaseClient | null = null
 
-let browserSupabase: SupabaseClient | null = null
-let hasAuthListener = false
-
-// Client-side Supabase singleton with session persistence and auto refresh
 export function createClient(): SupabaseClient {
-  if (browserSupabase) return browserSupabase
+  if (browserClient) return browserClient
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error("Missing Supabase env vars. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.")
+  if (!url || !anon) {
+    throw new Error("Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY")
   }
 
-  browserSupabase = createBrowserClient(supabaseUrl, supabaseAnonKey, {
-    auth: {
-      persistSession: true,
-      autoRefreshToken: true,
-      detectSessionInUrl: true,
-      flowType: "pkce",
-    },
-  })
-
-  // Register a one-time auth listener to clean up broken sessions
-  if (!hasAuthListener) {
-    hasAuthListener = true
-    browserSupabase.auth.onAuthStateChange(async (event) => {
-      // If the library signs the user out (e.g., after a failed refresh), ensure local state is cleared
-      if (event === "SIGNED_OUT" || event === "USER_DELETED") {
-        try {
-          await browserSupabase!.auth.signOut({ scope: "local" })
-        } catch {
-          // ignore
-        }
-      }
-    })
-  }
-
-  return browserSupabase
+  // This creates a client that uses browser storage (localStorage) for the session.
+  browserClient = createBrowserClient(url, anon)
+  return browserClient
 }
 
-// Named export for backward compatibility
-export const supabase = createClient()
-
-// Alternative function name for compatibility
-export function createSupabaseBrowserClient() {
-  return createClient()
-}
+// Some parts of the app may import a named "supabase" export.
+// Guard it so it's only instantiated in the browser.
+export const supabase: SupabaseClient =
+  typeof window !== "undefined" ? createClient() : (null as unknown as SupabaseClient)
