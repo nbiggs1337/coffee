@@ -1,26 +1,30 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js"
 
-// This function creates a new Supabase client with admin privileges.
-// It should ONLY be used in server-side code (API routes, server actions).
+// This is a server-only function to create a Supabase client with the service role key.
+// It's used for operations that need to bypass RLS, like creating buckets or fetching all users.
+// It should never be exposed to the client.
+
+// Log the environment variables to ensure they are available in the Vercel environment.
+console.log("Supabase Admin: NEXT_PUBLIC_SUPABASE_URL available:", !!process.env.NEXT_PUBLIC_SUPABASE_URL)
+console.log("Supabase Admin: SUPABASE_SERVICE_ROLE_KEY available:", !!process.env.SUPABASE_SERVICE_ROLE_KEY)
+
+let adminClient: SupabaseClient | undefined
+
 export function createSupabaseAdminClient(): SupabaseClient {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-
-  console.log("createSupabaseAdminClient: Checking environment variables...")
-  // Check for essential environment variables.
-  if (!supabaseUrl || !supabaseServiceRoleKey) {
-    console.error("CRITICAL: Missing Supabase environment variables for admin client.")
-    console.error(`NEXT_PUBLIC_SUPABASE_URL is ${supabaseUrl ? "found" : "MISSING"}.`)
-    console.error(`SUPABASE_SERVICE_ROLE_KEY is ${supabaseServiceRoleKey ? "found" : "MISSING"}.`)
-    throw new Error("Server configuration error: Missing Supabase credentials.")
+  if (adminClient) {
+    return adminClient
   }
-  console.log("createSupabaseAdminClient: Environment variables found. Creating client.")
 
-  // Create and return the admin client.
-  return createClient(supabaseUrl, supabaseServiceRoleKey, {
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error("Missing Supabase environment variables for admin client.")
+  }
+
+  adminClient = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,
     },
   })
+
+  return adminClient
 }
