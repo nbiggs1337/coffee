@@ -1,0 +1,325 @@
+/*
+These styles are for the Neobrutalism design.
+They define custom properties and utility classes.
+*/
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom CSS Variables for Neobrutalism */
+:root {
+  --neobrutal-primary: #2d1810; /* Dark coffee brown for text, borders */
+  --neobrutal-secondary: #8b6f47; /* Medium coffee brown for muted text */
+  --neobrutal-background: #f5f1eb; /* Cream background */
+  --neobrutal-accent-yellow: #8b4513; /* Coffee brown for highlights */
+  --neobrutal-accent-green: #6b8e23; /* Olive green for success */
+  --neobrutal-accent-blue: #4682b4; /* Steel blue for links/buttons */
+  --neobrutal-accent-red: #a0522d; /* Sienna red for errors */
+  --neobrutal-border-width: 2px;
+  --neobrutal-shadow-offset: 4px;
+}
+
+/* Base styles for Neobrutalism */
+body {
+  font-family: "Inter", sans-serif;
+  color: var(--neobrutal-primary);
+  background-color: var(--neobrutal-background);
+}
+
+/* Utility classes for Neobrutalism */
+.shadow-neobrutalism {
+  box-shadow: var(--neobrutal-shadow-offset) var(--neobrutal-shadow-offset) 0px var(--neobrutal-primary);
+}
+
+.shadow-neobrutalism-sm {
+  box-shadow: calc(var(--neobrutal-shadow-offset) / 2) calc(var(--neobrutal-shadow-offset) / 2) 0px
+    var(--neobrutal-primary);
+}
+
+.shadow-neobrutalism-lg {
+  box-shadow: calc(var(--neobrutal-shadow-offset) * 1.5) calc(var(--neobrutal-shadow-offset) * 1.5) 0px
+    var(--neobrutal-primary);
+}
+
+.border-neobrutalism {
+  border: var(--neobrutal-border-width) solid var(--neobrutal-primary);
+}
+
+.neobrutal-card {
+  border: var(--neobrutal-border-width) solid var(--neobrutal-primary);
+  background-color: var(--neobrutal-background);
+  box-shadow: var(--neobrutal-shadow-offset) var(--neobrutal-shadow-offset) 0px var(--neobrutal-primary);
+}
+
+.neobrutal-button {
+  border: var(--neobrutal-border-width) solid var(--neobrutal-primary);
+  background-color: var(--neobrutal-accent-yellow);
+  color: var(--neobrutal-background);
+  font-weight: bold;
+  box-shadow: var(--neobrutal-shadow-offset) var(--neobrutal-shadow-offset) 0px var(--neobrutal-primary);
+  transition: transform 0.1s ease-out, box-shadow 0.1s ease-out;
+}
+
+.neobrutal-button:hover {
+  transform: translate(var(--neobrutal-shadow-offset), var(--neobrutal-shadow-offset));
+  box-shadow: 0 0 0 var(--neobrutal-primary);
+}
+
+.neobrutal-button:active {
+  transform: translate(var(--neobrutal-shadow-offset), var(--neobrutal-shadow-offset));
+  box-shadow: 0 0 0 var(--neobrutal-primary);
+}
+
+.neobrutal-input {
+  border: var(--neobrutal-border-width) solid var(--neobrutal-primary);
+  background-color: var(--neobrutal-background);
+  color: var(--neobrutal-primary);
+  padding: 0.75rem 1rem;
+  box-shadow: var(--neobrutal-shadow-offset) var(--neobrutal-shadow-offset) 0px var(--neobrutal-primary);
+  transition: box-shadow 0.1s ease-out;
+}
+
+.neobrutal-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 var(--neobrutal-primary);
+}
+
+.neobrutal-link {
+  color: var(--neobrutal-accent-blue);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  font-weight: 600;
+}
+
+.neobrutal-link:hover {
+  color: var(--neobrutal-primary);
+}
+
+/* Specific color overrides for components */
+.bg-neobrutal-primary {
+  background-color: var(--neobrutal-primary);
+}
+.text-neobrutal-primary {
+  color: var(--neobrutal-primary);
+}
+.border-neobrutal-primary {
+  border-color: var(--neobrutal-primary);
+}
+
+.bg-neobrutal-secondary {
+  background-color: var(--neobrutal-secondary);
+}
+.text-neobrutal-secondary {
+  color: var(--neobrutal-secondary);
+}
+
+.bg-neobrutal-background {
+  background-color: var(--neobrutal-background);
+}
+.text-neobrutal-text {
+  color: var(--neobrutal-primary);
+}
+
+.bg-neobrutal-yellow {
+  background-color: var(--neobrutal-accent-yellow);
+}
+.bg-neobrutal-green {
+  background-color: var(--neobrutal-accent-green);
+}
+.bg-neobrutal-blue {
+  background-color: var(--neobrutal-accent-blue);
+}
+.bg-neobrutal-red {
+  background-color: var(--neobrutal-accent-red);
+}
+
+/* Text color utilities */
+.text-neobrutal-yellow {
+  color: var(--neobrutal-accent-yellow);
+}
+.text-neobrutal-green {
+  color: var(--neobrutal-accent-green);
+}
+.text-neobrutal-blue {
+  color: var(--neobrutal-accent-blue);
+}
+.text-neobrutal-red {
+  color: var(--neobrutal-accent-red);
+}
+
+/* Shadcn overrides for neobrutalism */
+.dark .neobrutal-card,
+.dark .neobrutal-input,
+.dark .neobrutal-button {
+  border-color: var(--neobrutal-accent-yellow);
+  box-shadow: var(--neobrutal-shadow-offset) var(--neobrutal-shadow-offset) 0px var(--neobrutal-accent-yellow);
+}
+
+.dark .neobrutal-button:hover {
+  transform: translate(var(--neobrutal-shadow-offset), var(--neobrutal-shadow-offset));
+  box-shadow: 0 0 0 var(--neobrutal-accent-yellow);
+}
+
+.dark .neobrutal-primary {
+  color: var(--neobrutal-accent-yellow);
+}
+
+.dark .neobrutal-secondary {
+  color: var(--neobrutal-accent-green);
+}
+
+.dark .bg-neobrutal-primary {
+  background-color: var(--neobrutal-primary);
+}
+
+.dark .bg-neobrutal-background {
+  background-color: var(--neobrutal-primary);
+}
+
+.dark .text-neobrutal-primary {
+  color: var(--neobrutal-accent-yellow);
+}
+
+.dark .text-neobrutal-secondary {
+  color: var(--neobrutal-accent-green);
+}
+
+.dark .neobrutal-link {
+  color: var(--neobrutal-accent-green);
+}
+
+.dark .neobrutal-link:hover {
+  color: var(--neobrutal-accent-yellow);
+}
+
+/* Specific Shadcn component overrides */
+.neobrutal-dropdown-content {
+  border: var(--neobrutal-border-width) solid var(--neobrutal-primary);
+  background-color: var(--neobrutal-background);
+  box-shadow: var(--neobrutal-shadow-offset) var(--neobrutal-shadow-offset) 0px var(--neobrutal-primary);
+}
+
+.neobrutal-dropdown-item {
+  color: var(--neobrutal-primary);
+}
+
+.neobrutal-dropdown-item:hover {
+  background-color: var(--neobrutal-accent-yellow);
+  color: var(--neobrutal-background);
+}
+
+.neobrutal-separator {
+  background-color: var(--neobrutal-primary);
+}
+
+.neobrutal-avatar {
+  border: var(--neobrutal-border-width) solid var(--neobrutal-primary);
+}
+
+.neobrutal-avatar-fallback {
+  background-color: var(--neobrutal-accent-yellow);
+  color: var(--neobrutal-background);
+  font-weight: bold;
+}
+
+/* Custom utilities for spacing */
+.space-x-neobrutal > *:not(:first-child) {
+  margin-left: var(--neobrutal-shadow-offset);
+}
+
+.space-y-neobrutal > *:not(:first-child) {
+  margin-top: var(--neobrutal-shadow-offset);
+}
+
+.p-neobrutal {
+  padding: var(--neobrutal-shadow-offset);
+}
+
+.px-neobrutal {
+  padding-left: var(--neobrutal-shadow-offset);
+  padding-right: var(--neobrutal-shadow-offset);
+}
+
+.py-neobrutal {
+  padding-top: var(--neobrutal-shadow-offset);
+  padding-bottom: var(--neobrutal-shadow-offset);
+}
+
+.m-neobrutal {
+  margin: var(--neobrutal-shadow-offset);
+}
+
+.mx-neobrutal {
+  margin-left: var(--neobrutal-shadow-offset);
+  margin-right: var(--neobrutal-shadow-offset);
+}
+
+.my-neobrutal {
+  margin-top: var(--neobrutal-shadow-offset);
+  margin-bottom: var(--neobrutal-shadow-offset);
+}
+
+/* Coffee-themed gradients */
+.coffee-gradient {
+  background: linear-gradient(135deg, var(--neobrutal-accent-yellow) 0%, var(--neobrutal-secondary) 100%);
+}
+
+.coffee-gradient-light {
+  background: linear-gradient(135deg, var(--neobrutal-background) 0%, #e6d7c3 100%);
+}
+
+/* Special button variants */
+.neobrutal-button-success {
+  background-color: var(--neobrutal-accent-green);
+  color: var(--neobrutal-background);
+}
+
+.neobrutal-button-danger {
+  background-color: var(--neobrutal-accent-red);
+  color: var(--neobrutal-background);
+}
+
+.neobrutal-button-info {
+  background-color: var(--neobrutal-accent-blue);
+  color: var(--neobrutal-background);
+}
+
+/* Form elements */
+.neobrutal-textarea {
+  border: var(--neobrutal-border-width) solid var(--neobrutal-primary);
+  background-color: var(--neobrutal-background);
+  color: var(--neobrutal-primary);
+  padding: 0.75rem 1rem;
+  box-shadow: var(--neobrutal-shadow-offset) var(--neobrutal-shadow-offset) 0px var(--neobrutal-primary);
+  transition: box-shadow 0.1s ease-out;
+  resize: vertical;
+}
+
+.neobrutal-textarea:focus {
+  outline: none;
+  box-shadow: 0 0 0 var(--neobrutal-primary);
+}
+
+/* Badge styles */
+.neobrutal-badge {
+  border: var(--neobrutal-border-width) solid var(--neobrutal-primary);
+  background-color: var(--neobrutal-accent-yellow);
+  color: var(--neobrutal-background);
+  font-weight: bold;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  box-shadow: 2px 2px 0px var(--neobrutal-primary);
+}
+
+.neobrutal-badge-success {
+  background-color: var(--neobrutal-accent-green);
+}
+
+.neobrutal-badge-danger {
+  background-color: var(--neobrutal-accent-red);
+}
+
+.neobrutal-badge-info {
+  background-color: var(--neobrutal-accent-blue);
+}
