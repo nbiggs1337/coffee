@@ -161,6 +161,7 @@ export async function deleteUser(userId: string) {
     }
 
     revalidatePath("/admin")
+    revalidatePath("/feed")
     return { success: true }
   } catch (error: any) {
     console.error("Unexpected error in deleteUser:", error.message)
@@ -189,6 +190,7 @@ export async function deletePost(postId: string) {
     // Delete related data first
     await supabaseAdmin.from("votes").delete().eq("post_id", postId)
     await supabaseAdmin.from("comments").delete().eq("post_id", postId)
+    await supabaseAdmin.from("notifications").delete().eq("post_id", postId)
 
     const { error } = await supabaseAdmin.from("posts").delete().eq("id", postId)
 
@@ -198,6 +200,7 @@ export async function deletePost(postId: string) {
     }
 
     revalidatePath("/admin")
+    revalidatePath("/feed")
     return { success: true }
   } catch (error: any) {
     console.error("Unexpected error in deletePost:", error.message)
