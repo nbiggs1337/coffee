@@ -1,66 +1,65 @@
-import { type NextRequest, NextResponse } from "next/server"
-import { createServerSupabase } from "@/lib/supabase-server"
-
-// Force Node.js runtime to avoid Edge Runtime issues with Supabase
 export const runtime = "nodejs"
 
-export async function GET(request: NextRequest) {
+import { NextResponse } from "next/server"
+import { createServerSupabaseClient } from "@/lib/supabase-server"
+
+export async function GET() {
   try {
-    const supabase = createServerSupabase()
+    const supabase = await createServerSupabaseClient()
 
-    // Test auth
+    // Test auth session
     const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession()
 
-    if (authError) {
-      return NextResponse.json({
-        success: false,
-        error: "Auth error",
-        details: authError.message,
-      })
+    if (sessionError) {
+      return NextResponse.json(
+        {
+          error: "Session error",
+          details: sessionError.message,
+        },
+        { status: 401 },
+      )
     }
 
-    if (!user) {
-      return NextResponse.json({
-        success: false,
-        error: "No user found",
-      })
+    if (!session) {
+      return NextResponse.json(
+        {
+          error: "No active session",
+        },
+        { status: 401 },
+      )
     }
 
     // Test database access
-    const { data: profile, error: dbError } = await supabase
+    const { data: user, error: dbError } = await supabase
       .from("users")
       .select("id, email, full_name, is_admin")
-      .eq("id", user.id)
+      .eq("id", session.user.id)
       .single()
 
     if (dbError) {
-      return NextResponse.json({
-        success: false,
-        error: "Database error",
-        details: dbError.message,
-        user: {
-          id: user.id,
-          email: user.email,
+      return NextResponse.json(
+        {
+          error: "Database error",
+          details: dbError.message,
         },
-      })
+        { status: 500 },
+      )
     }
 
     return NextResponse.json({
       success: true,
-      user: {
-        id: user.id,
-        email: user.email,
-        created_at: user.created_at,
+      session: {
+        user_id: session.user.id,
+        email: session.user.email,
       },
-      profile,
+      user,
     })
   } catch (error) {
     return NextResponse.json(
       {
-        success: false,
         error: "Server error",
         details: error instanceof Error ? error.message : "Unknown error",
       },

@@ -1,10 +1,10 @@
 "use server"
 
-import { createSupabaseServerClient } from "@/lib/supabase-server"
+import { createServerSupabase } from "@/lib/supabase-server"
 import { revalidatePath } from "next/cache"
 
 export async function voteOnPost(postId: string, voteType: "green" | "red") {
-  const supabase = createSupabaseServerClient()
+  const supabase = createServerSupabase()
 
   // Get current user
   const {

@@ -1,14 +1,13 @@
-import { type NextRequest, NextResponse } from "next/server"
-import { createServerSupabase } from "@/lib/supabase-server"
-
-// Force Node.js runtime to avoid Edge Runtime issues with Supabase
 export const runtime = "nodejs"
+
+import { type NextRequest, NextResponse } from "next/server"
+import { supabaseAdmin } from "@/lib/supabase-admin"
+import { createServerSupabaseClient } from "@/lib/supabase-server"
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = createServerSupabase()
-
     // Check if user is authenticated and is admin
+    const supabase = await createServerSupabaseClient()
     const {
       data: { user },
       error: authError,
@@ -19,38 +18,24 @@ export async function GET(request: NextRequest) {
     }
 
     // Check if user is admin
-    const { data: profile, error: profileError } = await supabase
+    const { data: userData, error: userError } = await supabase
       .from("users")
       .select("is_admin")
       .eq("id", user.id)
       .single()
 
-    if (profileError || !profile?.is_admin) {
+    if (userError || !userData?.is_admin) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
-    // Fetch all users
-    const { data: users, error: usersError } = await supabase
+    // Fetch all users using admin client
+    const { data: users, error } = await supabaseAdmin
       .from("users")
-      .select(`
-        id,
-        email,
-        full_name,
-        display_name,
-        avatar_url,
-        is_admin,
-        is_approved,
-        is_rejected,
-        agreed_to_terms,
-        verification_photo_url,
-        phone_number,
-        created_at,
-        updated_at
-      `)
+      .select("*")
       .order("created_at", { ascending: false })
 
-    if (usersError) {
-      console.error("Error fetching users:", usersError)
+    if (error) {
+      console.error("Error fetching users:", error)
       return NextResponse.json({ error: "Failed to fetch users" }, { status: 500 })
     }
 

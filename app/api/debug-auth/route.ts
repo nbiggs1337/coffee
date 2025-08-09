@@ -1,34 +1,25 @@
-import { type NextRequest, NextResponse } from "next/server"
-import { createServerSupabase } from "@/lib/supabase-server"
-
-// Force Node.js runtime to avoid Edge Runtime issues with Supabase
 export const runtime = "nodejs"
 
-export async function GET(request: NextRequest) {
-  try {
-    const supabase = createServerSupabase()
+import { NextResponse } from "next/server"
+import { createServerSupabaseClient } from "@/lib/supabase-server"
 
+export async function GET() {
+  try {
+    const supabase = await createServerSupabaseClient()
     const {
-      data: { user },
+      data: { session },
       error,
-    } = await supabase.auth.getUser()
+    } = await supabase.auth.getSession()
 
     return NextResponse.json({
-      user: user
-        ? {
-            id: user.id,
-            email: user.email,
-            created_at: user.created_at,
-          }
-        : null,
+      hasSession: !!session,
+      user: session?.user || null,
       error: error?.message || null,
-      timestamp: new Date().toISOString(),
     })
-  } catch (err) {
+  } catch (error) {
     return NextResponse.json(
       {
-        error: err instanceof Error ? err.message : "Unknown error",
-        timestamp: new Date().toISOString(),
+        error: error instanceof Error ? error.message : "Unknown error",
       },
       { status: 500 },
     )

@@ -62,3 +62,8 @@ export function createClient(): SupabaseClient {
 
 // Named export for backward compatibility
 export const supabase = createClient()
+
+// Alternative function name for compatibility
+export function createSupabaseBrowserClient() {
+  return createClient()
+}

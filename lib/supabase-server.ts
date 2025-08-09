@@ -4,7 +4,7 @@ import { cache } from "react"
 import type { SupabaseClient } from "@supabase/supabase-js"
 
 // Server-side Supabase client for Server Components, Server Actions, and Route Handlers.
-// Uses the recommended getAll/setAll cookie adapter. [^3]
+// Uses the recommended getAll/setAll cookie adapter.
 export const createServerSupabase = cache((): SupabaseClient => {
   const cookieStore = cookies()
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -23,15 +23,16 @@ export const createServerSupabase = cache((): SupabaseClient => {
         try {
           cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options))
         } catch {
-          // Ignore: Server Components can't always write cookies; middleware will handle refresh. [^3][^4]
+          // Ignore: Server Components can't always write cookies; middleware will handle refresh.
         }
       },
     },
   })
 })
 
-// Backward-compatible alias
+// Backward-compatible aliases
 export const createSupabaseServerClient = createServerSupabase
+export const createServerSupabaseClient = createServerSupabase
 
 // Admin client (service role). Use sparingly and never in the browser.
 export const createSupabaseAdminClient = cache((): SupabaseClient => {
@@ -60,4 +61,4 @@ export const createSupabaseAdminClient = cache((): SupabaseClient => {
 })
 
 // Named export for backward compatibility
-export const supabaseAdmin = createSupabaseAdminClient()
+export const supabaseAdmin = createSupabaseAdminClient

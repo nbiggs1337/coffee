@@ -1,92 +1,66 @@
-import { type NextRequest, NextResponse } from "next/server"
-import { createClient } from "@supabase/supabase-js"
-
-// Force Node.js runtime to avoid Edge Runtime issues with Supabase
 export const runtime = "nodejs"
 
-export async function GET(request: NextRequest) {
-  try {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+import { NextResponse } from "next/server"
+import { createServerSupabaseClient } from "@/lib/supabase-server"
 
-    if (!supabaseUrl || !supabaseServiceKey) {
+export async function GET() {
+  try {
+    const supabase = await createServerSupabaseClient()
+
+    // Get current user
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser()
+
+    if (authError || !user) {
       return NextResponse.json(
         {
-          error: "Missing Supabase configuration",
+          error: "Authentication required",
         },
-        { status: 500 },
+        { status: 401 },
       )
     }
 
-    // Create service role client
-    const supabase = createClient(supabaseUrl, supabaseServiceKey)
-
-    // Test various operations
-    const tests = []
-
-    // Test 1: Read users table
-    try {
-      const { data: users, error } = await supabase.from("users").select("id, email, full_name").limit(1)
-
-      tests.push({
-        test: "Read users table",
-        success: !error,
-        error: error?.message,
-        count: users?.length,
-      })
-    } catch (err) {
-      tests.push({
-        test: "Read users table",
-        success: false,
-        error: err instanceof Error ? err.message : "Unknown error",
-      })
+    // Test various permissions
+    const tests = {
+      readOwnUser: false,
+      readPosts: false,
+      createPost: false,
+      readComments: false,
     }
 
-    // Test 2: Read posts table
-    try {
-      const { data: posts, error } = await supabase.from("posts").select("id, subject_name, created_at").limit(1)
+    // Test reading own user record
+    const { data: userData, error: userError } = await supabase
+      .from("users")
+      .select("id, email, full_name")
+      .eq("id", user.id)
+      .single()
 
-      tests.push({
-        test: "Read posts table",
-        success: !error,
-        error: error?.message,
-        count: posts?.length,
-      })
-    } catch (err) {
-      tests.push({
-        test: "Read posts table",
-        success: false,
-        error: err instanceof Error ? err.message : "Unknown error",
-      })
-    }
+    tests.readOwnUser = !userError && !!userData
 
-    // Test 3: Read votes table
-    try {
-      const { data: votes, error } = await supabase.from("votes").select("id, vote_type, created_at").limit(1)
+    // Test reading posts
+    const { data: postsData, error: postsError } = await supabase.from("posts").select("id").limit(1)
 
-      tests.push({
-        test: "Read votes table",
-        success: !error,
-        error: error?.message,
-        count: votes?.length,
-      })
-    } catch (err) {
-      tests.push({
-        test: "Read votes table",
-        success: false,
-        error: err instanceof Error ? err.message : "Unknown error",
-      })
-    }
+    tests.readPosts = !postsError
+
+    // Test reading comments
+    const { data: commentsData, error: commentsError } = await supabase.from("comments").select("id").limit(1)
+
+    tests.readComments = !commentsError
 
     return NextResponse.json({
       success: true,
-      tests,
-      timestamp: new Date().toISOString(),
+      user: {
+        id: user.id,
+        email: user.email,
+      },
+      permissions: tests,
+      userData: userData || null,
     })
   } catch (error) {
     return NextResponse.json(
       {
-        success: false,
         error: "Server error",
         details: error instanceof Error ? error.message : "Unknown error",
       },

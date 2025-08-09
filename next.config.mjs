@@ -1,8 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  experimental: {
-    serverComponentsExternalPackages: ['@supabase/supabase-js']
-  },
+  serverExternalPackages: ['@supabase/supabase-js'],
   eslint: {
     ignoreDuringBuilds: true,
   },
@@ -22,7 +20,7 @@ const nextConfig = {
         hostname: 'placeholder.svg',
         port: '',
         pathname: '/**',
-      }
+      },
     ],
     unoptimized: true,
   },
