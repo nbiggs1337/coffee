@@ -6,15 +6,17 @@ export function createSupabaseAdminClient(): SupabaseClient {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
+  console.log("createSupabaseAdminClient: Checking environment variables...")
   // Check for essential environment variables.
   if (!supabaseUrl || !supabaseServiceRoleKey) {
-    throw new Error(
-      "Missing Supabase environment variables for admin client. Ensure NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are set.",
-    )
+    console.error("CRITICAL: Missing Supabase environment variables for admin client.")
+    console.error(`NEXT_PUBLIC_SUPABASE_URL is ${supabaseUrl ? "found" : "MISSING"}.`)
+    console.error(`SUPABASE_SERVICE_ROLE_KEY is ${supabaseServiceRoleKey ? "found" : "MISSING"}.`)
+    throw new Error("Server configuration error: Missing Supabase credentials.")
   }
+  console.log("createSupabaseAdminClient: Environment variables found. Creating client.")
 
   // Create and return the admin client.
-  // The options are recommended for server-side clients.
   return createClient(supabaseUrl, supabaseServiceRoleKey, {
     auth: {
       autoRefreshToken: false,

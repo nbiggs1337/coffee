@@ -7,14 +7,18 @@ export async function uploadFile(
   bucketName: string,
   folder?: string,
 ): Promise<{ success: boolean; url?: string; message: string }> {
-  const supabaseAdmin = createSupabaseAdminClient()
-  const file = formData.get("file") as File | null
-
-  if (!file) {
-    return { success: false, message: "No file provided." }
-  }
+  console.log(`Upload Action: Initiated for bucket "${bucketName}".`)
 
   try {
+    const supabaseAdmin = createSupabaseAdminClient()
+    const file = formData.get("file") as File | null
+
+    if (!file) {
+      console.error("Upload Action: No file found in FormData.")
+      return { success: false, message: "No file provided." }
+    }
+    console.log(`Upload Action: File found: ${file.name}, size: ${file.size}, type: ${file.type}`)
+
     // 1. Validate file properties
     if (!file.type.startsWith("image/")) {
       return { success: false, message: "Invalid file type. Only images are allowed." }
@@ -25,30 +29,35 @@ export async function uploadFile(
     }
 
     // 2. Ensure the storage bucket exists
+    console.log("Upload Action: Checking if bucket exists.")
     const { data: buckets, error: listError } = await supabaseAdmin.storage.listBuckets()
     if (listError) {
-      console.error("Upload Action: Error listing buckets:", listError)
-      throw new Error("Could not verify storage buckets.")
+      console.error("Upload Action: Supabase error listing buckets:", listError)
+      throw new Error("Could not verify storage buckets on the server.")
     }
 
     const bucketExists = buckets.some((b) => b.name === bucketName)
     if (!bucketExists) {
+      console.log(`Upload Action: Bucket "${bucketName}" does not exist. Creating it...`)
       const { error: createError } = await supabaseAdmin.storage.createBucket(bucketName, {
         public: true,
         allowedMimeTypes: ["image/*"],
         fileSizeLimit: "5mb",
       })
-      // Gracefully handle the case where the bucket was created by a parallel request
-      if (createError && createError.message !== 'Bucket "verification-photos" already exists') {
-        console.error(`Upload Action: Error creating bucket "${bucketName}":`, createError)
-        throw new Error(`Could not create storage bucket.`)
+      if (createError && createError.message !== `Bucket "${bucketName}" already exists`) {
+        console.error(`Upload Action: Supabase error creating bucket "${bucketName}":`, createError)
+        throw new Error(`Could not create storage bucket on the server.`)
       }
+      console.log(`Upload Action: Bucket "${bucketName}" created or already exists.`)
+    } else {
+      console.log(`Upload Action: Bucket "${bucketName}" already exists.`)
     }
 
     // 3. Upload the file
     const fileExt = file.name.split(".").pop() || "png"
     const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`
     const filePath = folder ? `${folder}/${fileName}` : fileName
+    console.log(`Upload Action: Uploading file to path: ${filePath}`)
 
     const { error: uploadError } = await supabaseAdmin.storage.from(bucketName).upload(filePath, file, {
       contentType: file.type,
@@ -57,17 +66,19 @@ export async function uploadFile(
     })
 
     if (uploadError) {
-      console.error("Upload Action: Error uploading file:", uploadError)
-      throw new Error("Failed to upload file to storage.")
+      console.error("Upload Action: Supabase error uploading file:", uploadError)
+      throw new Error("Failed to upload file to server storage.")
     }
+    console.log("Upload Action: File uploaded successfully.")
 
     // 4. Get the public URL
     const { data: urlData } = supabaseAdmin.storage.from(bucketName).getPublicUrl(filePath)
 
     if (!urlData.publicUrl) {
       console.error("Upload Action: Could not get public URL for file:", filePath)
-      throw new Error("File uploaded, but failed to create a public URL.")
+      throw new Error("File was uploaded, but failed to create a public URL.")
     }
+    console.log(`Upload Action: Public URL retrieved: ${urlData.publicUrl}`)
 
     return {
       success: true,
@@ -75,11 +86,12 @@ export async function uploadFile(
       message: "File uploaded successfully.",
     }
   } catch (error: any) {
-    console.error("Upload Action: An unexpected error occurred:", error)
-    // Return a generic but clear error message to the client
+    // This is the most important block. It catches ANY error from the above `try`
+    // and ensures a valid JSON object is returned to the client.
+    console.error("Upload Action: A critical unhandled error occurred:", error)
     return {
       success: false,
-      message: error.message || "An unexpected server error occurred during upload.",
+      message: "A critical server error occurred. Please check the server logs for details.",
     }
   }
 }
