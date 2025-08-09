@@ -1,30 +1,25 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js"
 
-// This is a server-only function to create a Supabase client with the service role key.
-// It's used for operations that need to bypass RLS, like creating buckets or fetching all users.
-// It should never be exposed to the client.
-
-// Log the environment variables to ensure they are available in the Vercel environment.
-console.log("Supabase Admin: NEXT_PUBLIC_SUPABASE_URL available:", !!process.env.NEXT_PUBLIC_SUPABASE_URL)
-console.log("Supabase Admin: SUPABASE_SERVICE_ROLE_KEY available:", !!process.env.SUPABASE_SERVICE_ROLE_KEY)
-
-let adminClient: SupabaseClient | undefined
-
+/**
+ * Creates a new Supabase client with admin privileges (service_role key).
+ * This should ONLY be used in server-side code (Server Actions, API routes).
+ * It always creates a new client to avoid state issues in serverless environments.
+ */
 export function createSupabaseAdminClient(): SupabaseClient {
-  if (adminClient) {
-    return adminClient
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  // This check is critical. If it fails, the action will throw an error.
+  if (!supabaseUrl || !supabaseServiceRoleKey) {
+    console.error("CRITICAL ERROR: Missing Supabase admin environment variables.")
+    throw new Error("Server is not configured correctly for uploads.")
   }
 
-  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    throw new Error("Missing Supabase environment variables for admin client.")
-  }
-
-  adminClient = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
+  // Create and return a new client instance.
+  return createClient(supabaseUrl, supabaseServiceRoleKey, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,
     },
   })
-
-  return adminClient
 }

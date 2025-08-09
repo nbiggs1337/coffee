@@ -1,416 +1,261 @@
 "use client"
 
 import type React from "react"
-import { useState, useRef, useEffect } from "react"
+
+import { useState, useEffect, useTransition } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
+import { createClient } from "@/lib/supabase"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { useToast } from "@/components/ui/use-toast"
-import { Camera, Loader2, Upload, X, FileText } from "lucide-react"
-import Image from "next/image"
-import { createClient } from "@/lib/supabase"
 import { uploadFile } from "@/actions/upload"
+import type { User } from "@/lib/types"
+import Image from "next/image"
 
 export default function AgreementPage() {
-  const [isLoading, setIsLoading] = useState(true)
-  const [fullName, setFullName] = useState("")
-  const [verificationPhotoFile, setVerificationPhotoFile] = useState<File | null>(null)
-  const [photoPreview, setPhotoPreview] = useState<string | null>(null)
-  const [isUploading, setIsUploading] = useState(false)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [emailFromSignup, setEmailFromSignup] = useState("")
-  const [userId, setUserId] = useState("")
-  const [agreedToTerms, setAgreedToTerms] = useState(false)
-  const [showTerms, setShowTerms] = useState(false)
-
   const router = useRouter()
-  const { toast } = useToast()
-  const fileInputRef = useRef<HTMLInputElement>(null)
   const searchParams = useSearchParams()
+  const { toast } = useToast()
+  const [isPending, startTransition] = useTransition()
+
+  const [isLoading, setIsLoading] = useState(true)
+  const [user, setUser] = useState<User | null>(null)
+  const [sessionUserId, setSessionUserId] = useState<string | null>(null)
+  const [displayName, setDisplayName] = useState("")
+  const [verificationPhoto, setVerificationPhoto] = useState<File | null>(null)
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null)
+  const [agreedToTerms, setAgreedToTerms] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let isMounted = true
+    console.log("AgreementPage: useEffect started.")
 
-    const initializePage = async () => {
+    async function fetchUserAndProfile() {
       try {
-        console.log("AgreementPage: Initialization started.")
-
-        // Explicitly check for environment variables
-        if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-          throw new Error("Supabase environment variables are not configured on the client.")
-        }
-
         const supabase = createClient()
-        const emailParam = searchParams.get("email")
-        let finalEmail: string | null = emailParam
-
-        // Step 1: Get the authenticated user
         const {
-          data: { user },
-          error: authError,
-        } = await supabase.auth.getUser()
+          data: { session },
+          error: sessionError,
+        } = await supabase.auth.getSession()
 
-        if (authError) {
-          console.warn("Auth error during initialization:", authError.message)
-        }
-
-        if (!isMounted) return
-
-        // Use the authenticated user's email if available and no param is set
-        if (user?.email && !finalEmail) {
-          finalEmail = user.email
-        }
-
-        // If still no email, we cannot proceed.
-        if (!finalEmail) {
-          toast({
-            title: "Session Expired",
-            description: "Please log in to continue.",
-            variant: "destructive",
-          })
+        if (sessionError) throw new Error(`Session Error: ${sessionError.message}`)
+        if (!session) {
+          console.log("AgreementPage: No active session, redirecting to login.")
           router.replace("/login")
           return
         }
+        console.log("AgreementPage: Session found for user:", session.user.id)
+        setSessionUserId(session.user.id)
 
-        setEmailFromSignup(finalEmail)
-
-        // Step 2: Fetch the corresponding profile from the database
         const { data: profile, error: profileError } = await supabase
           .from("users")
-          .select("id, full_name, verification_photo_url, agreed_to_terms")
-          .eq("email", finalEmail)
-          .maybeSingle()
+          .select("*")
+          .eq("id", session.user.id)
+          .single()
 
-        if (profileError) {
-          // This is not a fatal error, the profile might not exist yet.
-          console.warn("Could not fetch profile:", profileError.message)
+        if (profileError && profileError.code !== "PGRST116") {
+          throw new Error(`Profile Error: ${profileError.message}`)
         }
 
-        if (!isMounted) return
-
-        // Step 3: Check if the user has already completed the agreement
-        if (profile?.agreed_to_terms && profile?.full_name && profile?.verification_photo_url) {
-          toast({ title: "Profile already complete", description: "Redirecting..." })
-          router.replace(`/pending?email=${encodeURIComponent(finalEmail)}`)
-          return
-        }
-
-        // Step 4: Pre-fill the form with existing data
-        if (profile) {
-          setUserId(profile.id)
-          setFullName(profile.full_name || "")
-          setPhotoPreview(profile.verification_photo_url || null)
-        } else if (user) {
-          // If no profile exists yet, but we have an auth user, use their ID.
-          setUserId(user.id)
-        }
-      } catch (error: any) {
-        console.error("CRITICAL ERROR in AgreementPage initialization:", error)
         if (isMounted) {
+          if (profile) {
+            console.log("AgreementPage: User profile found.", profile)
+            setUser(profile)
+            if (profile.agreed_to_terms) {
+              console.log("AgreementPage: User has already agreed to terms, redirecting to feed.")
+              router.replace("/feed")
+              return
+            }
+            setDisplayName(profile.display_name || profile.full_name || "")
+          } else {
+            console.log("AgreementPage: No profile found for this user yet.")
+            // This is a new user, which is expected.
+          }
+        }
+      } catch (err: any) {
+        console.error("AgreementPage: Error in useEffect:", err)
+        if (isMounted) {
+          setError("Failed to load your profile. Please try logging in again.")
           toast({
-            title: "A critical error occurred",
-            description: error.message || "Please refresh the page.",
+            title: "Error",
+            description: err.message || "Could not load user data.",
             variant: "destructive",
           })
         }
       } finally {
-        // This block is guaranteed to run, ending the loading state.
         if (isMounted) {
-          console.log("AgreementPage: Initialization finished.")
+          console.log("AgreementPage: useEffect finished, setting isLoading to false.")
           setIsLoading(false)
         }
       }
     }
 
-    initializePage()
+    fetchUserAndProfile()
 
     return () => {
+      console.log("AgreementPage: Component unmounted.")
       isMounted = false
     }
-  }, []) // Empty array ensures this effect runs only once.
+  }, [router, toast])
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (!file) return
-
-    if (!file.type.startsWith("image/")) {
-      toast({ title: "Invalid file type", description: "Please select an image file.", variant: "destructive" })
-      return
+    if (file) {
+      setVerificationPhoto(file)
+      setPhotoPreview(URL.createObjectURL(file))
     }
-    if (file.size > 25 * 1024 * 1024) {
-      toast({
-        title: "File too large",
-        description: "Please select an image smaller than 5MB.",
-        variant: "destructive",
-      })
-      return
-    }
-
-    setVerificationPhotoFile(file)
-    const reader = new FileReader()
-    reader.onload = (ev) => setPhotoPreview((ev.target?.result as string) ?? null)
-    reader.readAsDataURL(file)
-  }
-
-  const removePhoto = () => {
-    setVerificationPhotoFile(null)
-    setPhotoPreview(null)
-    if (fileInputRef.current) fileInputRef.current.value = ""
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-
-    if (!fullName.trim()) {
-      toast({ title: "Name required", description: "Please enter your full name.", variant: "destructive" })
+    if (!sessionUserId) {
+      toast({ title: "Error", description: "Your session has expired. Please log in again.", variant: "destructive" })
       return
     }
-    if (!verificationPhotoFile && !photoPreview) {
-      toast({ title: "Photo required", description: "Please upload a verification photo.", variant: "destructive" })
+    if (!verificationPhoto) {
+      toast({ title: "Missing Photo", description: "Please upload a verification photo.", variant: "destructive" })
       return
     }
     if (!agreedToTerms) {
       toast({
-        title: "Terms required",
-        description: "Please agree to the terms and conditions.",
+        title: "Terms not accepted",
+        description: "You must agree to the terms and conditions.",
         variant: "destructive",
       })
       return
     }
 
-    if (!userId || !emailFromSignup) {
-      toast({
-        title: "Session Error",
-        description: "User information is missing. Please log in again.",
-        variant: "destructive",
-      })
-      router.push("/login")
-      return
-    }
+    startTransition(async () => {
+      const formData = new FormData()
+      formData.append("file", verificationPhoto)
+      formData.append("userId", sessionUserId) // Pass the user ID in the form data
 
-    setIsSubmitting(true)
-    try {
-      let photoUrl = photoPreview || ""
-      if (verificationPhotoFile) {
-        setIsUploading(true)
-        try {
-          const formData = new FormData()
-          formData.append("file", verificationPhotoFile)
-          const uploadResult = await uploadFile(formData, "verification-photos", `users/${userId}`)
-          if (!uploadResult.success || !uploadResult.url) {
-            throw new Error(uploadResult.message || "Photo upload failed.")
-          }
-          photoUrl = uploadResult.url
-        } finally {
-          setIsUploading(false)
-        }
+      const uploadResult = await uploadFile(formData, "verification-photos")
+
+      if (!uploadResult.success || !uploadResult.url) {
+        toast({ title: "Upload Failed", description: uploadResult.message, variant: "destructive" })
+        return
       }
 
+      toast({ title: "Upload Successful", description: "Your photo has been uploaded." })
+
       const supabase = createClient()
-      const { error: upsertError } = await supabase.from("users").upsert({
-        id: userId,
-        email: emailFromSignup,
-        full_name: fullName.trim(),
-        verification_photo_url: photoUrl,
-        agreed_to_terms: true,
-        is_approved: emailFromSignup === "nbiggs1337@gmail.com",
-        is_admin: emailFromSignup === "nbiggs1337@gmail.com",
-        is_rejected: false,
-        updated_at: new Date().toISOString(),
-      })
+      const { error: updateError } = await supabase
+        .from("users")
+        .update({
+          display_name: displayName,
+          verification_photo_url: uploadResult.url,
+          agreed_to_terms: true,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", sessionUserId)
 
-      if (upsertError) throw upsertError
+      if (updateError) {
+        toast({
+          title: "Update Failed",
+          description: `Could not save your agreement. ${updateError.message}`,
+          variant: "destructive",
+        })
+        return
+      }
 
-      toast({
-        title: "Profile Completed",
-        description: "Your information has been saved. Redirecting...",
-      })
-      router.push(`/pending?email=${encodeURIComponent(emailFromSignup)}`)
-    } catch (err: any) {
-      console.error("Submit error:", err)
-      toast({
-        title: "Submission Failed",
-        description: err.message || "An unexpected error occurred.",
-        variant: "destructive",
-      })
-    } finally {
-      setIsSubmitting(false)
-    }
+      toast({ title: "Agreement Complete!", description: "Your account is now pending approval." })
+      router.push("/pending")
+    })
   }
 
   if (isLoading) {
     return (
-      <div className="flex justify-center items-center min-h-screen bg-neobrutal-background">
+      <div className="flex min-h-screen items-center justify-center bg-gray-100 dark:bg-gray-900">
         <div className="text-center">
-          <Loader2 className="h-12 w-12 animate-spin text-neobrutal-primary mx-auto mb-4" />
-          <p className="text-lg text-neobrutal-secondary">Loading Your Profile...</p>
+          <p className="text-lg font-semibold">Loading your agreement...</p>
+          <p className="text-sm text-gray-500">Please wait a moment.</p>
         </div>
       </div>
     )
   }
 
-  const canSubmit =
-    !!fullName.trim() && (verificationPhotoFile || photoPreview) && agreedToTerms && !isSubmitting && !isUploading
+  if (error) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-100 dark:bg-gray-900">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle>An Error Occurred</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-red-500">{error}</p>
+          </CardContent>
+          <CardFooter>
+            <Button onClick={() => router.push("/login")} className="w-full">
+              Return to Login
+            </Button>
+          </CardFooter>
+        </Card>
+      </div>
+    )
+  }
 
   return (
-    <main className="flex min-h-[calc(100vh-64px)] flex-col items-center justify-center p-4 md:p-6 bg-neobrutal-background text-neobrutal-primary">
-      <Card className="w-full max-w-2xl neobrutal-card">
+    <div className="flex min-h-screen items-center justify-center bg-gray-50 p-4 dark:bg-gray-950">
+      <Card className="w-full max-w-lg">
         <CardHeader>
-          <CardTitle className="text-2xl font-bold text-neobrutal-primary text-center">Complete Your Profile</CardTitle>
-          {emailFromSignup && (
-            <p className="text-sm text-neobrutal-secondary text-center">Complete your profile for {emailFromSignup}</p>
-          )}
+          <CardTitle>Community Agreement</CardTitle>
+          <CardDescription>
+            To ensure community safety, please provide a real name and a clear verification photo of yourself.
+          </CardDescription>
         </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div>
-              <Label htmlFor="fullName" className="block text-sm font-bold text-neobrutal-primary mb-2">
-                Full Name *
-              </Label>
+        <form onSubmit={handleSubmit}>
+          <CardContent className="space-y-6">
+            <div className="space-y-2">
+              <Label htmlFor="displayName">Display Name</Label>
               <Input
-                id="fullName"
-                type="text"
+                id="displayName"
                 placeholder="Enter your full name"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                className="neobrutal-input w-full"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
                 required
               />
             </div>
-
-            <div>
-              <Label className="block text-sm font-bold text-neobrutal-primary mb-2">Verification Photo *</Label>
-              <p className="text-xs text-neobrutal-secondary mb-3">Upload a clear photo for verification. Max 5MB.</p>
-
-              {!photoPreview ? (
-                <div className="border-4 border-dashed border-neobrutal-primary rounded-lg p-6 text-center">
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={handleFileChange}
-                    className="hidden"
-                    id="verification-photo"
-                  />
-                  <Camera className="mx-auto h-12 w-12 text-neobrutal-secondary mb-4" />
-                  <p className="text-neobrutal-secondary mb-4">Upload your photo</p>
-                  <Button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="neobrutal-button bg-neobrutal-blue"
-                  >
-                    <Upload className="mr-2 h-4 w-4" />
-                    Select Photo
-                  </Button>
-                </div>
-              ) : (
-                <div className="relative">
+            <div className="space-y-2">
+              <Label htmlFor="verificationPhoto">Verification Photo</Label>
+              <Input id="verificationPhoto" type="file" accept="image/*" onChange={handlePhotoChange} required />
+              {photoPreview && (
+                <div className="mt-4">
                   <Image
                     src={photoPreview || "/placeholder.svg"}
-                    alt="Verification photo preview"
-                    width={300}
-                    height={300}
-                    className="w-full h-64 object-cover rounded-lg border-4 border-neobrutal-primary"
+                    alt="Photo preview"
+                    width={150}
+                    height={150}
+                    className="rounded-md object-cover"
                   />
-                  <Button
-                    type="button"
-                    onClick={removePhoto}
-                    className="absolute top-2 right-2 neobrutal-button bg-neobrutal-red p-2"
-                    size="sm"
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
                 </div>
               )}
             </div>
-
-            <div className="bg-neobrutal-yellow p-4 rounded border-2 border-neobrutal-primary">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-bold text-neobrutal-primary flex items-center">
-                  <FileText className="mr-2 h-5 w-5" />
-                  Terms and Conditions
-                </h3>
-                <Button
-                  type="button"
-                  onClick={() => setShowTerms(!showTerms)}
-                  className="neobrutal-button bg-neobrutal-blue text-white text-xs px-3 py-1"
-                >
-                  {showTerms ? "Hide" : "Read"} Terms
-                </Button>
-              </div>
-
-              {showTerms && (
-                <div className="bg-white p-4 rounded border-2 border-neobrutal-primary mb-4 max-h-60 overflow-y-auto">
-                  <div className="text-sm text-neobrutal-primary space-y-3">
-                    <h4 className="font-bold">Coffee Community Safety Platform - Terms of Service</h4>
-                    <p>
-                      1. Acceptance of Terms: By using Coffee, you agree to these terms and our community guidelines.
-                    </p>
-                    <p>
-                      2. Community Purpose: Coffee is for sharing safety information. All content should serve this
-                      purpose.
-                    </p>
-                    <p>
-                      3. Account Verification: All accounts require admin approval. You must provide accurate
-                      information.
-                    </p>
-                    <p>
-                      4. Content Guidelines: No harassment, discrimination, or inappropriate content. Respect privacy.
-                    </p>
-                    <p>5. Privacy: Your verification photo is only visible to administrators.</p>
-                    <p>6. Prohibited Activities: No false information or illegal activities.</p>
-                    <p>7. Consequences: Violations may result in content removal or account suspension.</p>
-                    <p>8. Disclaimer: We don't guarantee the accuracy of user-generated content.</p>
-                  </div>
-                </div>
-              )}
-
-              <div className="flex items-start space-x-3">
-                <Checkbox
-                  id="terms-agreement"
-                  checked={agreedToTerms}
-                  onCheckedChange={(checked) => setAgreedToTerms(checked as boolean)}
-                  className="mt-1"
-                />
-                <Label htmlFor="terms-agreement" className="text-sm text-neobrutal-primary cursor-pointer">
-                  I have read and agree to the Terms and Conditions and Community Guidelines. I understand that my
-                  account will be reviewed for approval by an administrator.
-                </Label>
-              </div>
-            </div>
-
-            <Button
-              type="submit"
-              className="w-full neobrutal-button bg-neobrutal-green text-white font-bold py-3 disabled:opacity-70"
-              disabled={!canSubmit}
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  {isUploading ? "Uploading..." : "Saving..."}
-                </>
-              ) : (
-                "Complete Profile & Submit for Approval"
-              )}
-            </Button>
-          </form>
-
-          <div className="mt-6 text-center">
-            <p className="text-sm text-neobrutal-secondary">
-              After completing your profile, verify your email and{" "}
-              <button
-                onClick={() => router.push("/login")}
-                className="text-neobrutal-blue hover:underline neobrutal-link"
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="terms"
+                checked={agreedToTerms}
+                onCheckedChange={(checked) => setAgreedToTerms(Boolean(checked))}
+              />
+              <label
+                htmlFor="terms"
+                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
               >
-                log in here
-              </button>
-            </p>
-          </div>
-        </CardContent>
+                I agree to the terms and conditions.
+              </label>
+            </div>
+          </CardContent>
+          <CardFooter>
+            <Button type="submit" className="w-full" disabled={isPending}>
+              {isPending ? "Submitting..." : "Submit for Approval"}
+            </Button>
+          </CardFooter>
+        </form>
       </Card>
-    </main>
+    </div>
   )
 }
