@@ -23,7 +23,7 @@ export async function uploadFile(
     if (!file.type.startsWith("image/")) {
       return { success: false, message: "Invalid file type. Only images are allowed." }
     }
-    if (file.size > 5 * 1024 * 1024) {
+    if (file.size > 25 * 1024 * 1024) {
       // 5MB limit
       return { success: false, message: "File is too large. Maximum size is 5MB." }
     }
