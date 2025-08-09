@@ -1,9 +1,8 @@
 "use client"
 
 import { CardFooter } from "@/components/ui/card"
-
 import type React from "react"
-import { useState, useRef, useEffect, useTransition } from "react"
+import { useEffect, useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -11,10 +10,10 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { useToast } from "@/components/ui/use-toast"
-import { Camera, Loader2, Upload, X, FileText } from "lucide-react"
+import { Camera, FileText, Loader2, Upload, X } from "lucide-react"
 import { createClient } from "@/lib/supabase"
-import { uploadFile } from "@/actions/upload"
 import { fileToDataURL, normalizeCameraImageToJpeg } from "@/utils/image-utils"
+import { createSignedVerificationUpload } from "@/actions/storage-signed"
 
 export default function AgreementPage() {
   const router = useRouter()
@@ -89,7 +88,7 @@ export default function AgreementPage() {
     }
   }, [router, toast])
 
-  // Revoke any blob URLs if used (safety; we now use data URLs for preview)
+  // Cleanup for any blob URLs if created elsewhere (we preview via data URLs here)
   useEffect(() => {
     return () => {
       if (photoPreview && photoPreview.startsWith("blob:")) {
@@ -102,13 +101,13 @@ export default function AgreementPage() {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (!file) return // Wrap in async to run conversions without blocking
+    if (!file) return
     ;(async () => {
       try {
-        // 1) Normalize camera captures (HEIC/HEIF) to JPEG for mobile stability
+        // Normalize mobile camera captures to JPEG to avoid HEIC issues
         const processed = await normalizeCameraImageToJpeg(file)
 
-        // 2) Size guard (25MB)
+        // Size guard (25MB)
         if (processed.size > 25 * 1024 * 1024) {
           toast({
             title: "File too large",
@@ -118,7 +117,7 @@ export default function AgreementPage() {
           return
         }
 
-        // 3) Use a data URL for preview (stable across mobile browsers)
+        // Data URL preview is stable across mobile browsers
         const preview = await fileToDataURL(processed)
 
         setVerificationPhotoFile(processed)
@@ -161,23 +160,49 @@ export default function AgreementPage() {
 
     startTransition(async () => {
       try {
-        const formData = new FormData()
-        formData.append("file", verificationPhotoFile)
-        formData.append("userId", sessionUserId)
+        const supabase = createClient()
+        const bucket = "verification-photos"
 
-        const uploadResult = await uploadFile(formData, "verification-photos")
-
-        if (!uploadResult.success || !uploadResult.url) {
-          toast({ title: "Upload Failed", description: uploadResult.message, variant: "destructive" })
+        // 1) Create a signed upload URL on the server
+        const signed = await createSignedVerificationUpload(sessionUserId, verificationPhotoFile.name)
+        if (!("success" in signed) || !signed.success) {
+          toast({
+            title: "Upload Error",
+            description: ("message" in signed && signed.message) || "Could not prepare secure upload.",
+            variant: "destructive",
+          })
           return
         }
 
-        const supabase = createClient()
+        // 2) Upload directly from the browser to Supabase Storage via the signed URL
+        const { error: uploadErr } = await supabase.storage
+          .from(bucket)
+          .uploadToSignedUrl(signed.path, signed.token, verificationPhotoFile, {
+            upsert: false,
+            contentType: verificationPhotoFile.type || "image/jpeg",
+          })
+
+        if (uploadErr) {
+          console.error("[Agreement] uploadToSignedUrl error:", uploadErr)
+          toast({
+            title: "Upload Failed",
+            description: uploadErr.message || "Could not upload your photo. Please try again.",
+            variant: "destructive",
+          })
+          return
+        }
+
+        // 3) Get a public URL (assumes bucket is public). If bucket is private, store the path instead,
+        //    and generate a signed view URL when admins need to view it.
+        const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(signed.path)
+        const photoUrl = urlData.publicUrl
+
+        // 4) Save user profile
         const { error: updateError } = await supabase
           .from("users")
           .update({
             full_name: fullName,
-            verification_photo_url: uploadResult.url,
+            verification_photo_url: photoUrl, // Or store `signed.path` if bucket is private
             agreed_to_terms: true,
             updated_at: new Date().toISOString(),
           })
