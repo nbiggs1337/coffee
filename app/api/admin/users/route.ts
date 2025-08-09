@@ -1,61 +1,63 @@
 export const runtime = "nodejs"
+export const dynamic = "force-dynamic" // Ensure fresh data on every request
 
-import { type NextRequest, NextResponse } from "next/server"
-import { supabaseAdmin } from "@/lib/supabase-admin"
+import { NextResponse } from "next/server"
+import { createSupabaseAdminClient } from "@/lib/supabase-admin"
 import { createServerSupabase } from "@/lib/supabase-server"
 
-export async function GET(request: NextRequest) {
-  try {
-    const supabase = createServerSupabase()
+export async function GET() {
+  console.log("API /api/admin/users: Received GET request.")
 
-    // Check if user is authenticated and is admin
+  try {
+    // 1. Create a server client to check the current user's authentication
+    const supabase = createServerSupabase()
     const {
       data: { user },
       error: authError,
     } = await supabase.auth.getUser()
 
     if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      console.error("API /api/admin/users: Authentication failed.", { authError })
+      return NextResponse.json({ error: "Unauthorized: Not logged in." }, { status: 401 })
     }
+    console.log(`API /api/admin/users: User ${user.id} is authenticated.`)
 
-    // Get user profile to check admin status
-    const { data: profile, error: profileError } = await supabase
+    // 2. Verify the authenticated user is an admin
+    const { data: currentUserProfile, error: profileError } = await supabase
       .from("users")
       .select("is_admin")
       .eq("id", user.id)
       .single()
 
-    if (profileError || !profile?.is_admin) {
-      return NextResponse.json({ error: "Admin access required" }, { status: 403 })
+    if (profileError) {
+      console.error(`API /api/admin/users: Could not fetch profile for user ${user.id}.`, { profileError })
+      return NextResponse.json({ error: "Forbidden: Could not verify admin status." }, { status: 403 })
     }
 
-    // Use admin client with service role to bypass RLS and get ALL users
-    const { data: users, error: usersError } = await supabaseAdmin
+    if (!currentUserProfile?.is_admin) {
+      console.warn(`API /api/admin/users: Non-admin user ${user.id} attempted to access all users.`)
+      return NextResponse.json({ error: "Forbidden: User is not an admin." }, { status: 403 })
+    }
+    console.log(`API /api/admin/users: User ${user.id} is confirmed as an admin.`)
+
+    // 3. If confirmed as admin, use the admin client (with service role) to fetch all users
+    const adminSupabase = createSupabaseAdminClient()
+    console.log("API /api/admin/users: Admin client created. Fetching all users...")
+
+    const { data: allUsers, error: allUsersError } = await adminSupabase
       .from("users")
-      .select(`
-        id,
-        email,
-        full_name,
-        display_name,
-        phone_number,
-        verification_photo_url,
-        avatar_url,
-        is_approved,
-        is_rejected,
-        is_admin,
-        created_at
-      `)
+      .select("*")
       .order("created_at", { ascending: false })
 
-    if (usersError) {
-      console.error("Error fetching users:", usersError)
-      return NextResponse.json({ error: "Failed to fetch users" }, { status: 500 })
+    if (allUsersError) {
+      console.error("API /api/admin/users: Error fetching all users with admin client.", { allUsersError })
+      return NextResponse.json({ error: `Database error: ${allUsersError.message}` }, { status: 500 })
     }
 
-    console.log("Fetched users count:", users?.length || 0)
-    return NextResponse.json(users || [])
-  } catch (error) {
-    console.error("Unexpected error in admin users API:", error)
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+    console.log(`API /api/admin/users: Successfully fetched ${allUsers?.length || 0} users.`)
+    return NextResponse.json(allUsers || [])
+  } catch (e: any) {
+    console.error("API /api/admin/users: An unexpected error occurred in the handler.", { error: e.message })
+    return NextResponse.json({ error: "An internal server error occurred." }, { status: 500 })
   }
 }
