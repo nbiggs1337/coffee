@@ -37,8 +37,8 @@ export async function uploadFile(
     console.log(`[Upload Action] Uploading file to path: ${filePath}`)
 
     // Perform the upload.
+    // REMOVED contentType to let the client library handle it, which is more robust for mobile.
     const { error: uploadError } = await supabaseAdmin.storage.from(bucketName).upload(filePath, file, {
-      contentType: file.type,
       upsert: false, // Don't allow overwriting files.
     })
 
