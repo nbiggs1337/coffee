@@ -4,24 +4,23 @@
 import { createBrowserClient } from "@supabase/ssr"
 import type { SupabaseClient } from "@supabase/supabase-js"
 
-let browserClient: SupabaseClient | null = null
+let client: SupabaseClient | undefined
 
-export function createClient(): SupabaseClient {
-  if (browserClient) return browserClient
-
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-  if (!url || !anon) {
-    throw new Error("Missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY")
+function getSupabaseBrowserClient() {
+  if (client) {
+    return client
   }
 
-  // This creates a client that uses browser storage (localStorage) for the session.
-  browserClient = createBrowserClient(url, anon)
-  return browserClient
+  client = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
+
+  return client
 }
 
-// Some parts of the app may import a named "supabase" export.
-// Guard it so it's only instantiated in the browser.
-export const supabase: SupabaseClient =
-  typeof window !== "undefined" ? createClient() : (null as unknown as SupabaseClient)
+// This is the function to be used in client components to get the singleton instance.
+export function createClient() {
+  return getSupabaseBrowserClient()
+}
+
+// This is for backward compatibility for any imports like `import { supabase } from ...`
+// It's guarded to only run in the browser, preventing SSR errors.
+export const supabase = typeof window !== "undefined" ? createClient() : (null as unknown as SupabaseClient)

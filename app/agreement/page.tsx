@@ -30,70 +30,77 @@ export default function AgreementPage() {
   const { toast } = useToast()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const searchParams = useSearchParams()
-  const supabase = createClient()
 
-  // Load user data on mount - avoid auth calls that might fail
   useEffect(() => {
-    async function loadUser() {
+    // This effect should only run once on mount to fetch initial data.
+    async function loadInitialData() {
+      setIsLoading(true)
       try {
-        // Get email from URL params (from signup redirect)
+        const supabase = createClient()
         const emailParam = searchParams.get("email")
+        let emailToUse = emailParam
 
-        if (emailParam) {
-          setEmailFromSignup(emailParam)
-        } else {
-          // Fallback: try to get email from current auth session
-          try {
-            const {
-              data: { user },
-            } = await supabase.auth.getUser()
-            if (user?.email) {
-              setEmailFromSignup(user.email)
-              console.log("Using email from auth session:", user.email)
-            } else {
-              console.log("No email found in URL params or auth session")
-            }
-          } catch (authError) {
-            console.log("Auth error when trying to get user email:", authError)
+        if (!emailToUse) {
+          const {
+            data: { user },
+            error: authError,
+          } = await supabase.auth.getUser()
+          if (authError) {
+            console.error("Auth error on agreement page:", authError.message)
           }
+          emailToUse = user?.email || null
         }
 
-        // Continue with existing user lookup logic...
-        const emailToUse = emailParam || emailFromSignup
         if (emailToUse) {
-          try {
-            const { data: userData, error: userError } = await supabase
-              .from("users")
-              .select("*")
-              .eq("email", emailToUse)
-              .single()
+          setEmailFromSignup(emailToUse)
 
-            if (!userError && userData) {
-              setTempUserId(userData.id)
+          const { data: userData, error: userError } = await supabase
+            .from("users")
+            .select("id, full_name, verification_photo_url, agreed_to_terms")
+            .eq("email", emailToUse)
+            .maybeSingle()
 
-              if (userData.agreed_to_terms && userData.full_name && userData.verification_photo_url) {
-                router.push(`/pending?email=${encodeURIComponent(emailToUse)}`)
-                return
-              }
-
-              setFullName(userData.full_name || "")
-              if (userData.verification_photo_url) {
-                setPhotoPreview(userData.verification_photo_url)
-              }
-            }
-          } catch (dbError) {
-            console.log("Database lookup error (non-fatal):", dbError)
+          if (userError) {
+            console.error("Error fetching user profile:", userError.message)
           }
+
+          if (userData) {
+            if (userData.agreed_to_terms && userData.full_name && userData.verification_photo_url) {
+              router.replace(`/pending?email=${encodeURIComponent(emailToUse)}`)
+              return // Redirecting, so no need to update loading state
+            }
+            setTempUserId(userData.id)
+            setFullName(userData.full_name || "")
+            if (userData.verification_photo_url) {
+              setPhotoPreview(userData.verification_photo_url)
+            }
+          }
+        } else {
+          toast({
+            title: "Session not found",
+            description: "Please log in or sign up to continue.",
+            variant: "destructive",
+          })
+          router.replace("/login")
+          return
         }
       } catch (error) {
-        console.log("Load user error (non-fatal):", error)
+        console.error("An unexpected error occurred on the agreement page:", error)
+        toast({
+          title: "An unexpected error occurred",
+          description: "Please refresh the page and try again.",
+          variant: "destructive",
+        })
       } finally {
+        // This guarantees the loading spinner will be removed.
         setIsLoading(false)
       }
     }
 
-    loadUser()
-  }, [supabase, searchParams, router, emailFromSignup])
+    loadInitialData()
+    // Using a simple dependency array ensures this runs only once on mount
+    // or if the email param changes.
+  }, [searchParams, router, toast])
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -124,148 +131,92 @@ export default function AgreementPage() {
     if (fileInputRef.current) fileInputRef.current.value = ""
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    ;(async () => {
-      // Validate required fields
-      if (!fullName.trim()) {
-        toast({ title: "Name required", description: "Please enter your full name.", variant: "destructive" })
-        return
-      }
 
-      if (!verificationPhotoFile && !photoPreview) {
+    if (!fullName.trim()) {
+      toast({ title: "Name required", description: "Please enter your full name.", variant: "destructive" })
+      return
+    }
+    if (!verificationPhotoFile && !photoPreview) {
+      toast({ title: "Photo required", description: "Please upload a verification photo.", variant: "destructive" })
+      return
+    }
+    if (!agreedToTerms) {
+      toast({
+        title: "Terms required",
+        description: "Please agree to the terms and conditions.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsSubmitting(true)
+    try {
+      const supabase = createClient()
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
+      const emailToUse = user?.email || emailFromSignup
+      const userIdToUse = user?.id || tempUserId
+
+      if (!userIdToUse || !emailToUse) {
         toast({
-          title: "Photo required",
-          description: "Please upload a verification photo.",
+          title: "Session Error",
+          description: "Could not find user. Please log in again.",
           variant: "destructive",
         })
-        return
-      }
-
-      if (!agreedToTerms) {
-        toast({
-          title: "Terms required",
-          description: "Please agree to the terms and conditions.",
-          variant: "destructive",
-        })
-        return
-      }
-
-      setIsSubmitting(true)
-
-      try {
-        // Always try to resolve the real authenticated user first
-        let authUserId: string | undefined
-        let authEmail: string | undefined
-        try {
-          const {
-            data: { user },
-          } = await supabase.auth.getUser()
-          authUserId = user?.id
-          authEmail = user?.email || undefined
-        } catch {
-          // ignore – we’ll fallback to email lookup
-        }
-
-        // Determine email to use
-        const emailToUse = (authEmail || emailFromSignup || "").trim()
-        if (!emailToUse) {
-          toast({
-            title: "Session Error",
-            description: "Please log in to complete your profile.",
-            variant: "destructive",
-          })
-          router.push("/login")
-          setIsSubmitting(false)
-          return
-        }
-
-        // Resolve the target user id – prefer auth user id, then any temp id previously loaded, then lookup by email
-        let userIdToUse = authUserId || tempUserId
-        if (!userIdToUse) {
-          const { data: existingUser, error: lookupErr } = await supabase
-            .from("users")
-            .select("id")
-            .eq("email", emailToUse)
-            .maybeSingle()
-          if (lookupErr) {
-            // not fatal; we continue only if we got an id
-            console.log("User lookup by email failed (non-fatal):", lookupErr)
-          }
-          if (existingUser?.id) {
-            userIdToUse = existingUser.id
-          }
-        }
-
-        // If we still do not have a deterministic user id, we should not create a random row.
-        if (!userIdToUse) {
-          toast({
-            title: "Session Error",
-            description: "Please log in to complete your profile.",
-            variant: "destructive",
-          })
-          router.push("/login")
-          setIsSubmitting(false)
-          return
-        }
-
-        // Upload verification photo if needed
-        let photoUrl = photoPreview || ""
-        if (verificationPhotoFile) {
-          setIsUploading(true)
-          try {
-            const formData = new FormData()
-            formData.append("file", verificationPhotoFile)
-            const uploadResult = await uploadFile(formData, "verification-photos", `users/${userIdToUse}`)
-            if (!uploadResult.success || !uploadResult.url) {
-              throw new Error(uploadResult.message || "Upload failed.")
-            }
-            photoUrl = uploadResult.url
-          } catch (err: any) {
-            toast({ title: "Upload Failed", description: err?.message || "Upload error.", variant: "destructive" })
-            setIsUploading(false)
-            setIsSubmitting(false)
-            return
-          } finally {
-            setIsUploading(false)
-          }
-        }
-
-        // Upsert the same, real user row. Never generate a new UUID.
-        const payload = {
-          id: userIdToUse,
-          email: emailToUse,
-          full_name: fullName.trim(),
-          verification_photo_url: photoUrl,
-          agreed_to_terms: true,
-          // Keep existing admin auto-approval by email, if needed
-          is_approved: emailToUse === "nbiggs1337@gmail.com",
-          is_admin: emailToUse === "nbiggs1337@gmail.com",
-          is_rejected: false,
-          updated_at: new Date().toISOString(),
-        }
-
-        const { error: upsertError } = await supabase.from("users").upsert(payload)
-
-        if (upsertError) {
-          throw new Error(upsertError.message)
-        }
-
-        toast({
-          title: "Profile Completed",
-          description: "Your information has been saved. Redirecting to pending approval...",
-        })
-
-        setTimeout(() => {
-          router.push(`/pending?email=${encodeURIComponent(emailToUse)}`)
-        }, 1500)
-      } catch (err: any) {
-        console.error("Save error:", err)
-        toast({ title: "Save Failed", description: err?.message || "Unexpected error.", variant: "destructive" })
-      } finally {
+        router.push("/login")
         setIsSubmitting(false)
+        return
       }
-    })()
+
+      let photoUrl = photoPreview || ""
+      if (verificationPhotoFile) {
+        setIsUploading(true)
+        try {
+          const formData = new FormData()
+          formData.append("file", verificationPhotoFile)
+          const uploadResult = await uploadFile(formData, "verification-photos", `users/${userIdToUse}`)
+          if (!uploadResult.success || !uploadResult.url) {
+            throw new Error(uploadResult.message || "Upload failed.")
+          }
+          photoUrl = uploadResult.url
+        } finally {
+          setIsUploading(false)
+        }
+      }
+
+      const { error: upsertError } = await supabase.from("users").upsert({
+        id: userIdToUse,
+        email: emailToUse,
+        full_name: fullName.trim(),
+        verification_photo_url: photoUrl,
+        agreed_to_terms: true,
+        is_approved: emailToUse === "nbiggs1337@gmail.com",
+        is_admin: emailToUse === "nbiggs1337@gmail.com",
+        is_rejected: false,
+        updated_at: new Date().toISOString(),
+      })
+
+      if (upsertError) throw upsertError
+
+      toast({
+        title: "Profile Completed",
+        description: "Your information has been saved. Redirecting...",
+      })
+      router.push(`/pending?email=${encodeURIComponent(emailToUse)}`)
+    } catch (err: any) {
+      console.error("Save error:", err)
+      toast({
+        title: "Save Failed",
+        description: err.message || "An unexpected error occurred.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   if (isLoading) {
@@ -354,7 +305,6 @@ export default function AgreementPage() {
               )}
             </div>
 
-            {/* Terms and Conditions Section */}
             <div className="bg-neobrutal-yellow p-4 rounded border-2 border-neobrutal-primary">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-bold text-neobrutal-primary flex items-center">
@@ -374,79 +324,24 @@ export default function AgreementPage() {
                 <div className="bg-white p-4 rounded border-2 border-neobrutal-primary mb-4 max-h-60 overflow-y-auto">
                   <div className="text-sm text-neobrutal-primary space-y-3">
                     <h4 className="font-bold">Coffee Community Safety Platform - Terms of Service</h4>
-
-                    <div>
-                      <h5 className="font-semibold">1. Acceptance of Terms</h5>
-                      <p>
-                        By using Coffee, you agree to these terms and our community guidelines. These terms may be
-                        updated periodically.
-                      </p>
-                    </div>
-
-                    <div>
-                      <h5 className="font-semibold">2. Community Purpose</h5>
-                      <p>
-                        Coffee is designed to help community members share safety information and stay informed about
-                        local activities. All content should serve this purpose.
-                      </p>
-                    </div>
-
-                    <div>
-                      <h5 className="font-semibold">3. Account Verification</h5>
-                      <p>
-                        All accounts require admin approval. You must provide accurate information and a clear
-                        verification photo. False information may result in account rejection.
-                      </p>
-                    </div>
-
-                    <div>
-                      <h5 className="font-semibold">4. Content Guidelines</h5>
-                      <p>
-                        • Share only factual, helpful safety information
-                        <br />• Respect privacy and avoid sharing personal details without consent
-                        <br />• No harassment, discrimination, or inappropriate content
-                        <br />• No spam or commercial promotion
-                      </p>
-                    </div>
-
-                    <div>
-                      <h5 className="font-semibold">5. Privacy</h5>
-                      <p>
-                        We protect your personal information and only share what's necessary for community safety. Your
-                        verification photo is only visible to administrators.
-                      </p>
-                    </div>
-
-                    <div>
-                      <h5 className="font-semibold">6. Prohibited Activities</h5>
-                      <p>
-                        • Posting false or misleading information
-                        <br />• Using the platform for illegal activities
-                        <br />• Attempting to circumvent security measures
-                        <br />• Creating multiple accounts
-                      </p>
-                    </div>
-
-                    <div>
-                      <h5 className="font-semibold">7. Consequences</h5>
-                      <p>
-                        Violations may result in content removal, account suspension, or permanent ban. Serious
-                        violations may be reported to authorities.
-                      </p>
-                    </div>
-
-                    <div>
-                      <h5 className="font-semibold">8. Disclaimer</h5>
-                      <p>
-                        Coffee is a community platform. We don't guarantee the accuracy of user-generated content.
-                        Always verify important information independently.
-                      </p>
-                    </div>
-
-                    <div>
-                      <h5 className="font-semibold">9. Contact</h5>
-                      <p>Questions about these terms? Contact our administrators through the platform.</p>
-                    </div>
+                    <p>
+                      1. Acceptance of Terms: By using Coffee, you agree to these terms and our community guidelines.
+                    </p>
+                    <p>
+                      2. Community Purpose: Coffee is for sharing safety information. All content should serve this
+                      purpose.
+                    </p>
+                    <p>
+                      3. Account Verification: All accounts require admin approval. You must provide accurate
+                      information.
+                    </p>
+                    <p>
+                      4. Content Guidelines: No harassment, discrimination, or inappropriate content. Respect privacy.
+                    </p>
+                    <p>5. Privacy: Your verification photo is only visible to administrators.</p>
+                    <p>6. Prohibited Activities: No false information or illegal activities.</p>
+                    <p>7. Consequences: Violations may result in content removal or account suspension.</p>
+                    <p>8. Disclaimer: We don't guarantee the accuracy of user-generated content.</p>
                   </div>
                 </div>
               )}
