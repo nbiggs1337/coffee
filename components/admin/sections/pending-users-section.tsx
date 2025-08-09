@@ -40,15 +40,20 @@ export default function PendingUsersSection({ onStatsChange }: PendingUsersSecti
   const loadPendingUsers = async () => {
     try {
       setLoading(true)
-      const { data, error } = await supabase
-        .from("users")
-        .select("id, email, full_name, verification_photo_url, created_at, agreed_to_terms")
-        .eq("is_approved", false)
-        .eq("is_rejected", false)
-        .order("created_at", { ascending: true })
 
-      if (error) throw error
-      setPendingUsers(data || [])
+      // Fetch pending users from the admin API
+      const response = await fetch("/api/admin/users")
+      if (!response.ok) {
+        throw new Error("Failed to fetch users")
+      }
+
+      const allUsers = await response.json()
+
+      // Filter for pending users (not approved and not rejected)
+      const pending = Array.isArray(allUsers) ? allUsers.filter((user) => !user.is_approved && !user.is_rejected) : []
+
+      console.log("Loaded pending users:", pending.length)
+      setPendingUsers(pending)
     } catch (error: any) {
       console.error("Error loading pending users:", error)
       toast({
@@ -56,6 +61,7 @@ export default function PendingUsersSection({ onStatsChange }: PendingUsersSecti
         description: error.message,
         variant: "destructive",
       })
+      setPendingUsers([])
     } finally {
       setLoading(false)
     }
