@@ -30,16 +30,18 @@ export default function AgreementPage() {
   const { toast } = useToast()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const searchParams = useSearchParams()
+  const supabase = createClient()
 
   useEffect(() => {
-    // This effect should only run once on mount to fetch initial data.
-    async function loadInitialData() {
-      setIsLoading(true)
+    let isMounted = true // Flag to prevent state updates on unmounted component
+
+    const loadInitialData = async () => {
+      console.log("AgreementPage: Starting to load initial data.")
       try {
-        const supabase = createClient()
         const emailParam = searchParams.get("email")
         let emailToUse = emailParam
 
+        // 1. Determine the user's email
         if (!emailToUse) {
           const {
             data: { user },
@@ -47,60 +49,85 @@ export default function AgreementPage() {
           } = await supabase.auth.getUser()
           if (authError) {
             console.error("Auth error on agreement page:", authError.message)
+            // Don't throw, maybe we can still find a user
           }
           emailToUse = user?.email || null
         }
 
-        if (emailToUse) {
-          setEmailFromSignup(emailToUse)
+        if (!isMounted) return
 
-          const { data: userData, error: userError } = await supabase
-            .from("users")
-            .select("id, full_name, verification_photo_url, agreed_to_terms")
-            .eq("email", emailToUse)
-            .maybeSingle()
-
-          if (userError) {
-            console.error("Error fetching user profile:", userError.message)
-          }
-
-          if (userData) {
-            if (userData.agreed_to_terms && userData.full_name && userData.verification_photo_url) {
-              router.replace(`/pending?email=${encodeURIComponent(emailToUse)}`)
-              return // Redirecting, so no need to update loading state
-            }
-            setTempUserId(userData.id)
-            setFullName(userData.full_name || "")
-            if (userData.verification_photo_url) {
-              setPhotoPreview(userData.verification_photo_url)
-            }
-          }
-        } else {
+        // 2. If no email, we can't proceed. Redirect to login.
+        if (!emailToUse) {
+          console.log("AgreementPage: No email found. Redirecting to login.")
           toast({
             title: "Session not found",
             description: "Please log in or sign up to continue.",
             variant: "destructive",
           })
           router.replace("/login")
-          return
+          return // Stop execution
+        }
+
+        setEmailFromSignup(emailToUse)
+
+        // 3. Fetch user profile from the database
+        const { data: userData, error: userError } = await supabase
+          .from("users")
+          .select("id, full_name, verification_photo_url, agreed_to_terms")
+          .eq("email", emailToUse)
+          .maybeSingle()
+
+        if (!isMounted) return
+
+        if (userError) {
+          console.error("Error fetching user profile:", userError.message)
+          // This is not fatal, maybe the user row doesn't exist yet.
+        }
+
+        // 4. If user data exists, populate the form or redirect if already completed
+        if (userData) {
+          console.log("AgreementPage: Found existing user data.")
+          // If profile is fully complete, redirect to pending page
+          if (userData.agreed_to_terms && userData.full_name && userData.verification_photo_url) {
+            console.log("AgreementPage: Profile complete. Redirecting to pending.")
+            router.replace(`/pending?email=${encodeURIComponent(emailToUse)}`)
+            return // Stop execution
+          }
+          // Otherwise, pre-fill the form
+          setTempUserId(userData.id)
+          setFullName(userData.full_name || "")
+          if (userData.verification_photo_url) {
+            setPhotoPreview(userData.verification_photo_url)
+          }
+        } else {
+          console.log("AgreementPage: No existing user data found for this email.")
         }
       } catch (error) {
-        console.error("An unexpected error occurred on the agreement page:", error)
-        toast({
-          title: "An unexpected error occurred",
-          description: "Please refresh the page and try again.",
-          variant: "destructive",
-        })
+        console.error("An unexpected error occurred during initial data load:", error)
+        if (isMounted) {
+          toast({
+            title: "An unexpected error occurred",
+            description: "Please refresh the page and try again.",
+            variant: "destructive",
+          })
+        }
       } finally {
-        // This guarantees the loading spinner will be removed.
-        setIsLoading(false)
+        // 5. This is the crucial part: always stop loading if the component is still mounted.
+        if (isMounted) {
+          console.log("AgreementPage: Finished loading data. Setting isLoading to false.")
+          setIsLoading(false)
+        }
       }
     }
 
     loadInitialData()
-    // Using a simple dependency array ensures this runs only once on mount
-    // or if the email param changes.
-  }, [searchParams, router, toast])
+
+    // Cleanup function to set the flag when the component unmounts
+    return () => {
+      isMounted = false
+      console.log("AgreementPage: Component unmounted.")
+    }
+  }, []) // <-- Empty dependency array ensures this runs ONLY ONCE.
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -153,7 +180,6 @@ export default function AgreementPage() {
 
     setIsSubmitting(true)
     try {
-      const supabase = createClient()
       const {
         data: { user },
       } = await supabase.auth.getUser()
@@ -221,10 +247,10 @@ export default function AgreementPage() {
 
   if (isLoading) {
     return (
-      <div className="flex justify-center items-center min-h-[calc(100vh-64px)] bg-neobrutal-background">
+      <div className="flex justify-center items-center min-h-screen bg-neobrutal-background">
         <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin text-neobrutal-primary mx-auto mb-4" />
-          <p className="text-neobrutal-secondary">Loading...</p>
+          <Loader2 className="h-12 w-12 animate-spin text-neobrutal-primary mx-auto mb-4" />
+          <p className="text-lg text-neobrutal-secondary">Loading Your Profile...</p>
         </div>
       </div>
     )
