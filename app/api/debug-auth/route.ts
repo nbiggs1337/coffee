@@ -1,52 +1,34 @@
-import { NextResponse } from "next/server"
-import { supabase } from "@/lib/supabase"
+import { type NextRequest, NextResponse } from "next/server"
+import { createServerSupabase } from "@/lib/supabase-server"
 
-export async function GET() {
+// Force Node.js runtime to avoid Edge Runtime issues with Supabase
+export const runtime = "nodejs"
+
+export async function GET(request: NextRequest) {
   try {
-    // Test auth session
-    const { data: session, error: sessionError } = await supabase.auth.getSession()
+    const supabase = createServerSupabase()
 
-    console.log("Session data:", {
-      hasSession: !!session?.session,
-      userId: session?.session?.user?.id,
-      userEmail: session?.session?.user?.email,
-      sessionError: sessionError?.message,
-    })
-
-    // Test if we can query with a specific user context
-    if (session?.session?.user) {
-      const { data: userData, error: userError } = await supabase
-        .from("users")
-        .select("*")
-        .eq("id", session.session.user.id)
-        .single()
-
-      console.log("User data query:", {
-        userData,
-        userError: userError?.message,
-      })
-
-      return NextResponse.json({
-        success: true,
-        hasSession: !!session?.session,
-        userId: session?.session?.user?.id,
-        userEmail: session?.session?.user?.email,
-        userData,
-        userError: userError?.message,
-      })
-    }
+    const {
+      data: { user },
+      error,
+    } = await supabase.auth.getUser()
 
     return NextResponse.json({
-      success: true,
-      hasSession: false,
-      message: "No active session",
+      user: user
+        ? {
+            id: user.id,
+            email: user.email,
+            created_at: user.created_at,
+          }
+        : null,
+      error: error?.message || null,
+      timestamp: new Date().toISOString(),
     })
-  } catch (error: any) {
-    console.error("Debug auth error:", error)
+  } catch (err) {
     return NextResponse.json(
       {
-        success: false,
-        error: error.message,
+        error: err instanceof Error ? err.message : "Unknown error",
+        timestamp: new Date().toISOString(),
       },
       { status: 500 },
     )

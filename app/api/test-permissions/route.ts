@@ -1,40 +1,94 @@
-import { NextResponse } from "next/server"
-import { supabaseAdmin } from "@/lib/supabase-server"
+import { type NextRequest, NextResponse } from "next/server"
+import { createClient } from "@supabase/supabase-js"
 
-export async function GET() {
+// Force Node.js runtime to avoid Edge Runtime issues with Supabase
+export const runtime = "nodejs"
+
+export async function GET(request: NextRequest) {
   try {
-    console.log("Testing permissions after fix...")
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
-    // Test basic schema access by querying a simple system view
-    const { data: tables, error: tablesError } = await supabaseAdmin
-      .from("pg_tables")
-      .select("schemaname, tablename")
-      .eq("schemaname", "public")
-      .limit(1) // Just check if we can read any table info
+    if (!supabaseUrl || !supabaseServiceKey) {
+      return NextResponse.json(
+        {
+          error: "Missing Supabase configuration",
+        },
+        { status: 500 },
+      )
+    }
 
-    console.log("Schema access test (pg_tables):", { tables, tablesError })
+    // Create service role client
+    const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
-    // Test users table access
-    const { data: users, error: usersError } = await supabaseAdmin
-      .from("users")
-      .select("id, email, is_approved, is_admin")
-      .limit(5)
+    // Test various operations
+    const tests = []
 
-    console.log("Users table access:", { users, usersError })
+    // Test 1: Read users table
+    try {
+      const { data: users, error } = await supabase.from("users").select("id, email, full_name").limit(1)
+
+      tests.push({
+        test: "Read users table",
+        success: !error,
+        error: error?.message,
+        count: users?.length,
+      })
+    } catch (err) {
+      tests.push({
+        test: "Read users table",
+        success: false,
+        error: err instanceof Error ? err.message : "Unknown error",
+      })
+    }
+
+    // Test 2: Read posts table
+    try {
+      const { data: posts, error } = await supabase.from("posts").select("id, subject_name, created_at").limit(1)
+
+      tests.push({
+        test: "Read posts table",
+        success: !error,
+        error: error?.message,
+        count: posts?.length,
+      })
+    } catch (err) {
+      tests.push({
+        test: "Read posts table",
+        success: false,
+        error: err instanceof Error ? err.message : "Unknown error",
+      })
+    }
+
+    // Test 3: Read votes table
+    try {
+      const { data: votes, error } = await supabase.from("votes").select("id, vote_type, created_at").limit(1)
+
+      tests.push({
+        test: "Read votes table",
+        success: !error,
+        error: error?.message,
+        count: votes?.length,
+      })
+    } catch (err) {
+      tests.push({
+        test: "Read votes table",
+        success: false,
+        error: err instanceof Error ? err.message : "Unknown error",
+      })
+    }
 
     return NextResponse.json({
       success: true,
-      pgTablesAccess: !!tables,
-      pgTablesError: tablesError?.message,
-      users: users || [],
-      usersError: usersError?.message,
+      tests,
+      timestamp: new Date().toISOString(),
     })
-  } catch (error: any) {
-    console.error("Test permissions error:", error)
+  } catch (error) {
     return NextResponse.json(
       {
         success: false,
-        error: error.message,
+        error: "Server error",
+        details: error instanceof Error ? error.message : "Unknown error",
       },
       { status: 500 },
     )

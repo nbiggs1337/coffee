@@ -1,59 +1,62 @@
-import { NextResponse } from "next/server"
-import { createSupabaseServerClient } from "@/lib/supabase-server"
-import { createSupabaseAdminClient } from "@/lib/supabase-admin"
+import { type NextRequest, NextResponse } from "next/server"
+import { createServerSupabase } from "@/lib/supabase-server"
 
-export const dynamic = "force-dynamic"
+// Force Node.js runtime to avoid Edge Runtime issues with Supabase
+export const runtime = "nodejs"
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    // 1. Verify the current user is authenticated
-    const supabase = createSupabaseServerClient()
+    const supabase = createServerSupabase()
+
+    // Check if user is authenticated and is admin
     const {
       data: { user },
       error: authError,
     } = await supabase.auth.getUser()
 
     if (authError || !user) {
-      console.error("API /api/admin/users: Auth error or no user.", { authError })
-      return new NextResponse("Unauthorized: Not logged in.", { status: 401 })
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    // 2. Verify the authenticated user is an admin
-    const { data: currentUserProfile, error: profileError } = await supabase
+    // Check if user is admin
+    const { data: profile, error: profileError } = await supabase
       .from("users")
       .select("is_admin")
       .eq("id", user.id)
       .single()
 
-    if (profileError) {
-      console.error(`API /api/admin/users: Could not check admin status for user ${user.id}.`, { profileError })
-      return new NextResponse("Forbidden: Could not verify admin status.", { status: 403 })
+    if (profileError || !profile?.is_admin) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
-    if (!currentUserProfile?.is_admin) {
-      console.warn(`API /api/admin/users: Non-admin user ${user.id} attempted to access all users.`)
-      return new NextResponse("Forbidden: User is not an admin.", { status: 403 })
-    }
-
-    // 3. If confirmed as admin, use the admin client to fetch all users
-    const adminSupabase = createSupabaseAdminClient()
-    if (!adminSupabase) {
-      throw new Error("Failed to create Supabase admin client. Check server environment variables.")
-    }
-
-    const { data: allUsers, error: allUsersError } = await adminSupabase
+    // Fetch all users
+    const { data: users, error: usersError } = await supabase
       .from("users")
-      .select("*")
+      .select(`
+        id,
+        email,
+        full_name,
+        display_name,
+        avatar_url,
+        is_admin,
+        is_approved,
+        is_rejected,
+        agreed_to_terms,
+        verification_photo_url,
+        phone_number,
+        created_at,
+        updated_at
+      `)
       .order("created_at", { ascending: false })
 
-    if (allUsersError) {
-      console.error("API /api/admin/users: Error fetching all users with admin client.", { allUsersError })
-      return new NextResponse(`Error fetching users: ${allUsersError.message}`, { status: 500 })
+    if (usersError) {
+      console.error("Error fetching users:", usersError)
+      return NextResponse.json({ error: "Failed to fetch users" }, { status: 500 })
     }
 
-    return NextResponse.json(allUsers || [])
-  } catch (e: any) {
-    console.error("API /api/admin/users: An unexpected error occurred.", { error: e, message: e.message })
-    return new NextResponse(e?.message || "An internal server error occurred.", { status: 500 })
+    return NextResponse.json({ users })
+  } catch (error) {
+    console.error("API error:", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

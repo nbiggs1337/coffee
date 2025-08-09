@@ -1,35 +1,68 @@
-import { NextResponse } from "next/server"
-import { supabase } from "@/lib/supabase"
+import { type NextRequest, NextResponse } from "next/server"
+import { createServerSupabase } from "@/lib/supabase-server"
 
-export async function GET() {
+// Force Node.js runtime to avoid Edge Runtime issues with Supabase
+export const runtime = "nodejs"
+
+export async function GET(request: NextRequest) {
   try {
-    console.log("Testing Supabase connection...")
+    const supabase = createServerSupabase()
 
-    // Test basic connection
-    const { data: session, error: sessionError } = await supabase.auth.getSession()
-    console.log("Session check:", { session: !!session?.session, error: sessionError })
+    // Test auth
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser()
 
-    // Test if we can query users table (this might fail due to RLS)
-    const { data: users, error: usersError } = await supabase
+    if (authError) {
+      return NextResponse.json({
+        success: false,
+        error: "Auth error",
+        details: authError.message,
+      })
+    }
+
+    if (!user) {
+      return NextResponse.json({
+        success: false,
+        error: "No user found",
+      })
+    }
+
+    // Test database access
+    const { data: profile, error: dbError } = await supabase
       .from("users")
-      .select("id, email, is_approved, is_admin")
-      .limit(1)
+      .select("id, email, full_name, is_admin")
+      .eq("id", user.id)
+      .single()
 
-    console.log("Users query:", { users, error: usersError })
+    if (dbError) {
+      return NextResponse.json({
+        success: false,
+        error: "Database error",
+        details: dbError.message,
+        user: {
+          id: user.id,
+          email: user.email,
+        },
+      })
+    }
 
     return NextResponse.json({
       success: true,
-      session: !!session?.session,
-      sessionError: sessionError?.message,
-      usersError: usersError?.message,
-      userCount: users?.length || 0,
+      user: {
+        id: user.id,
+        email: user.email,
+        created_at: user.created_at,
+      },
+      profile,
     })
-  } catch (error: any) {
-    console.error("Test auth error:", error)
+  } catch (error) {
     return NextResponse.json(
       {
         success: false,
-        error: error.message,
+        error: "Server error",
+        details: error instanceof Error ? error.message : "Unknown error",
       },
       { status: 500 },
     )
