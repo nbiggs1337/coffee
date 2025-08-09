@@ -11,7 +11,6 @@ export async function uploadFile(
 ): Promise<{ success: boolean; url?: string; message: string }> {
   console.log(`[Upload Action] Initiated for bucket: ${bucketName}`)
 
-  // Use a single try/catch block to guarantee a JSON response.
   try {
     const file = formData.get("file") as File | null
     const userId = formData.get("userId") as string | null
@@ -23,28 +22,24 @@ export async function uploadFile(
       return { success: false, message: "User ID is missing." }
     }
 
-    // Validate file size
     if (file.size > MAX_FILE_SIZE_BYTES) {
       return { success: false, message: `File is too large. Maximum size is ${MAX_FILE_SIZE_MB}MB.` }
     }
 
-    // Create a new, reliable admin client for this specific action.
     const supabaseAdmin = createSupabaseAdminClient()
 
-    // Define the file path using the user's ID to keep it organized.
-    const filePath = `${userId}/${Date.now()}-${file.name}`
+    const safeName = (file as any).name || "photo.jpg"
+    const filePath = `${userId}/${Date.now()}-${safeName}`
 
     console.log(`[Upload Action] Uploading file to path: ${filePath}`)
 
-    // Perform the upload.
-    // REMOVED contentType to let the client library handle it, which is more robust for mobile.
+    // Let the client library infer the content type for better mobile compatibility.
     const { error: uploadError } = await supabaseAdmin.storage.from(bucketName).upload(filePath, file, {
-      upsert: false, // Don't allow overwriting files.
+      upsert: false,
     })
 
     if (uploadError) {
       console.error("[Upload Action] Supabase upload error:", uploadError)
-      // Provide a more specific error message if possible.
       if (uploadError.message.includes("exceeds the maximum file size")) {
         return { success: false, message: `The file exceeds the bucket's size limit of ${MAX_FILE_SIZE_MB}MB.` }
       }
@@ -53,7 +48,6 @@ export async function uploadFile(
 
     console.log("[Upload Action] File uploaded successfully.")
 
-    // Get the public URL for the uploaded file.
     const { data: urlData } = supabaseAdmin.storage.from(bucketName).getPublicUrl(filePath)
 
     if (!urlData.publicUrl) {

@@ -14,6 +14,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { Camera, Loader2, Upload, X, FileText } from "lucide-react"
 import { createClient } from "@/lib/supabase"
 import { uploadFile } from "@/actions/upload"
+import { fileToDataURL, normalizeCameraImageToJpeg } from "@/utils/image-utils"
 
 export default function AgreementPage() {
   const router = useRouter()
@@ -88,6 +89,7 @@ export default function AgreementPage() {
     }
   }, [router, toast])
 
+  // Revoke any blob URLs if used (safety; we now use data URLs for preview)
   useEffect(() => {
     return () => {
       if (photoPreview && photoPreview.startsWith("blob:")) {
@@ -100,18 +102,36 @@ export default function AgreementPage() {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (file) {
-      if (file.size > 25 * 1024 * 1024) {
+    if (!file) return // Wrap in async to run conversions without blocking
+    ;(async () => {
+      try {
+        // 1) Normalize camera captures (HEIC/HEIF) to JPEG for mobile stability
+        const processed = await normalizeCameraImageToJpeg(file)
+
+        // 2) Size guard (25MB)
+        if (processed.size > 25 * 1024 * 1024) {
+          toast({
+            title: "File too large",
+            description: "Please select an image smaller than 25MB.",
+            variant: "destructive",
+          })
+          return
+        }
+
+        // 3) Use a data URL for preview (stable across mobile browsers)
+        const preview = await fileToDataURL(processed)
+
+        setVerificationPhotoFile(processed)
+        setPhotoPreview(preview)
+      } catch (err: any) {
+        console.error("[Agreement] handleFileChange error:", err)
         toast({
-          title: "File too large",
-          description: "Please select an image smaller than 25MB.",
+          title: "Image Error",
+          description: "We couldn't process this photo. Please try again or choose from your gallery.",
           variant: "destructive",
         })
-        return
       }
-      setVerificationPhotoFile(file)
-      setPhotoPreview(URL.createObjectURL(file))
-    }
+    })()
   }
 
   const removePhoto = () => {
@@ -145,7 +165,6 @@ export default function AgreementPage() {
         formData.append("file", verificationPhotoFile)
         formData.append("userId", sessionUserId)
 
-        // Ensure bucket name is provided
         const uploadResult = await uploadFile(formData, "verification-photos")
 
         if (!uploadResult.success || !uploadResult.url) {
