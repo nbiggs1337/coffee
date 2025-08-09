@@ -64,7 +64,7 @@ Key buckets in Supabase Storage:
 
 ### 2) Clone and install
 
-```bash
+\`\`\`bash
 git clone <your-repo-url>
 cd coffee-app
 npm install
