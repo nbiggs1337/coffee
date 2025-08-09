@@ -2,132 +2,60 @@
 
 import type React from "react"
 
-import { useState, useOptimistic } from "react"
-import { Card, CardContent, CardHeader } from "@/components/ui/card"
+import { useState, useTransition } from "react"
+import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Badge } from "@/components/ui/badge"
-import { ThumbsUp, ThumbsDown, MessageCircle, MapPin, Phone, User } from "lucide-react"
-import { formatDistanceToNow } from "date-fns"
+import { ThumbsUp, ThumbsDown, MessageCircle, User } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { createClient } from "@/lib/supabase"
 import { useToast } from "@/components/ui/use-toast"
+import { voteOnPost } from "@/actions/votes"
 import type { Post } from "@/lib/supabase"
 
 interface PostCardProps {
   post: Post
   currentUserId?: string
-  showVoting?: boolean
 }
 
-interface OptimisticVote {
-  hasVoted: boolean
-  voteType: "red" | "green" | null
-  redFlags: number
-  greenFlags: number
-}
-
-export default function PostCard({ post, currentUserId, showVoting = true }: PostCardProps) {
+export default function PostCard({ post, currentUserId }: PostCardProps) {
   const router = useRouter()
-  const supabase = createClient()
   const { toast } = useToast()
+  const [isPending, startTransition] = useTransition()
+  const [optimisticVotes, setOptimisticVotes] = useState({
+    green: post.green_flags || 0,
+    red: post.red_flags || 0,
+  })
 
-  const [isVoting, setIsVoting] = useState(false)
-  const [userVote, setUserVote] = useState<"red" | "green" | null>(null)
+  const handleVote = (voteType: "green" | "red") => {
+    if (!currentUserId) return
 
-  const [optimisticVote, addOptimisticVote] = useOptimistic<OptimisticVote, { type: "red" | "green" }>(
-    {
-      hasVoted: false,
-      voteType: userVote,
-      redFlags: post.red_flags,
-      greenFlags: post.green_flags,
-    },
-    (state, { type }) => ({
-      hasVoted: true,
-      voteType: type,
-      redFlags:
-        type === "red"
-          ? state.redFlags + (state.voteType === "red" ? 0 : state.voteType === "green" ? 1 : 1)
-          : state.voteType === "red"
-            ? state.redFlags - 1
-            : state.redFlags,
-      greenFlags:
-        type === "green"
-          ? state.greenFlags + (state.voteType === "green" ? 0 : state.voteType === "red" ? 1 : 1)
-          : state.voteType === "green"
-            ? state.greenFlags - 1
-            : state.greenFlags,
-    }),
-  )
+    // Optimistic update
+    setOptimisticVotes((prev) => ({
+      ...prev,
+      [voteType]: prev[voteType] + 1,
+    }))
 
-  const handleVote = async (voteType: "red" | "green") => {
-    if (!currentUserId || isVoting) return
-
-    setIsVoting(true)
-    addOptimisticVote({ type: voteType })
-
-    try {
-      // Check if user already voted
-      const { data: existingVote } = await supabase
-        .from("votes")
-        .select("vote_type")
-        .eq("post_id", post.id)
-        .eq("user_id", currentUserId)
-        .single()
-
-      if (existingVote) {
-        if (existingVote.vote_type === voteType) {
-          // Remove vote if clicking same type
-          await supabase.from("votes").delete().eq("post_id", post.id).eq("user_id", currentUserId)
-
-          setUserVote(null)
-          toast({
-            title: "🗳️ Vote Removed",
-            description: "Your vote has been removed.",
-            className: "neobrutal-card bg-neobrutal-yellow text-black border-neobrutal-primary",
-          })
-        } else {
-          // Update vote type
-          await supabase
-            .from("votes")
-            .update({ vote_type: voteType })
-            .eq("post_id", post.id)
-            .eq("user_id", currentUserId)
-
-          setUserVote(voteType)
-          toast({
-            title: voteType === "green" ? "💚 Green Flag!" : "❤️ Red Flag!",
-            description: `Your vote has been updated to ${voteType === "green" ? "Green Flag" : "Red Flag"}.`,
-            className: `neobrutal-card ${voteType === "green" ? "bg-neobrutal-green" : "bg-neobrutal-red"} text-white border-neobrutal-primary`,
-          })
-        }
-      } else {
-        // Create new vote
-        await supabase.from("votes").insert({
-          post_id: post.id,
-          user_id: currentUserId,
-          vote_type: voteType,
-        })
-
-        setUserVote(voteType)
+    startTransition(async () => {
+      try {
+        await voteOnPost(post.id, voteType)
         toast({
           title: voteType === "green" ? "💚 Green Flag!" : "❤️ Red Flag!",
-          description: `You voted ${voteType === "green" ? "Green Flag" : "Red Flag"} on this post.`,
+          description: `Your ${voteType === "green" ? "green flag" : "red flag"} has been recorded.`,
           className: `neobrutal-card ${voteType === "green" ? "bg-neobrutal-green" : "bg-neobrutal-red"} text-white border-neobrutal-primary`,
         })
+      } catch (error: any) {
+        // Revert optimistic update on error
+        setOptimisticVotes({
+          green: post.green_flags || 0,
+          red: post.red_flags || 0,
+        })
+        toast({
+          title: "❌ Vote Failed",
+          description: error.message || "Unable to record your vote. Please try again.",
+          variant: "destructive",
+        })
       }
-
-      router.refresh()
-    } catch (error) {
-      console.error("Error voting:", error)
-      toast({
-        title: "❌ Vote Failed",
-        description: "Unable to record your vote. Please try again.",
-        variant: "destructive",
-      })
-    } finally {
-      setIsVoting(false)
-    }
+    })
   }
 
   const handleAvatarClick = (e: React.MouseEvent) => {
@@ -150,21 +78,31 @@ export default function PostCard({ post, currentUserId, showVoting = true }: Pos
     router.push(`/post/${post.id}`)
   }
 
-  // Safe user data with null checks
+  const primaryPhoto = post.photos?.[0] || `/placeholder.svg?height=500&width=400&query=post+about+${post.subject_name}`
   const userDisplayName = post.user?.display_name || post.user?.full_name || "Anonymous"
-  const userUsername = post.user?.display_name || "anonymous"
   const userAvatarUrl = post.user?.avatar_url || "/diverse-user-avatars.png"
 
   return (
     <Card
-      className="neobrutal-card bg-white border-neobrutal-primary shadow-neobrutal hover:shadow-neobrutal-lg transition-all duration-200 cursor-pointer"
+      className="w-full overflow-hidden rounded-lg border-2 border-neobrutal-primary shadow-neobrutalism group relative cursor-pointer transition-all hover:shadow-neobrutalism-lg hover:-translate-y-1"
       onClick={handleCardClick}
     >
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
+      {/* Main image container */}
+      <div className="relative w-full aspect-[3/4]">
+        <img
+          src={primaryPhoto || "/placeholder.svg"}
+          alt={`Post about ${post.subject_name}`}
+          className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+        />
+
+        {/* Gradient overlay */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+
+        {/* User info overlay - top */}
+        <div className="absolute top-0 left-0 right-0 p-4 flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <Avatar
-              className="h-10 w-10 border-2 border-neobrutal-primary cursor-pointer hover:scale-105 transition-transform"
+              className="h-10 w-10 border-2 border-white cursor-pointer hover:scale-105 transition-transform"
               onClick={handleAvatarClick}
             >
               <AvatarImage src={userAvatarUrl || "/placeholder.svg"} alt={userDisplayName} />
@@ -174,115 +112,19 @@ export default function PostCard({ post, currentUserId, showVoting = true }: Pos
             </Avatar>
             <div>
               <p
-                className="font-semibold text-neobrutal-primary cursor-pointer hover:text-neobrutal-blue transition-colors"
+                className="font-bold text-white drop-shadow-md cursor-pointer hover:underline"
                 onClick={handleUsernameClick}
               >
                 {userDisplayName}
               </p>
-              <p className="text-sm text-gray-600">
-                {formatDistanceToNow(new Date(post.created_at), { addSuffix: true })}
-              </p>
             </div>
           </div>
-          <div className="flex items-center space-x-2">
-            <Badge variant="outline" className="border-neobrutal-primary text-neobrutal-primary">
-              <MapPin className="h-3 w-3 mr-1" />
-              {post.city}, {post.state}
-            </Badge>
-          </div>
-        </div>
-      </CardHeader>
 
-      <CardContent className="space-y-4">
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-bold text-neobrutal-primary">
-              {post.subject_name}, {post.subject_age}
-            </h3>
-            {post.phone_number && (
-              <Badge variant="secondary" className="bg-neobrutal-blue text-white">
-                <Phone className="h-3 w-3 mr-1" />
-                {post.phone_number}
-              </Badge>
-            )}
-          </div>
-          <p className="text-gray-700 leading-relaxed">{post.caption}</p>
-        </div>
-
-        {post.photos && post.photos.length > 0 && (
-          <div className="grid grid-cols-2 gap-2">
-            {post.photos.slice(0, 4).map((photo, index) => (
-              <div key={index} className="relative aspect-square">
-                <img
-                  src={photo || "/placeholder.svg"}
-                  alt={`Photo ${index + 1}`}
-                  className="w-full h-full object-cover rounded-lg border-2 border-neobrutal-primary"
-                />
-                {index === 3 && post.photos.length > 4 && (
-                  <div className="absolute inset-0 bg-black bg-opacity-50 rounded-lg flex items-center justify-center">
-                    <span className="text-white font-bold text-lg">+{post.photos.length - 4}</span>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div className="flex items-center justify-between pt-2 border-t-2 border-neobrutal-primary">
-          {showVoting && currentUserId ? (
-            <div className="flex items-center space-x-4">
-              <Button
-                variant={optimisticVote.voteType === "green" ? "default" : "outline"}
-                size="sm"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handleVote("green")
-                }}
-                disabled={isVoting}
-                className={`neobrutal-button ${
-                  optimisticVote.voteType === "green"
-                    ? "bg-neobrutal-green text-white"
-                    : "border-neobrutal-green text-neobrutal-green hover:bg-neobrutal-green hover:text-white"
-                }`}
-              >
-                <ThumbsUp className="h-4 w-4 mr-1" />
-                {optimisticVote.greenFlags}
-              </Button>
-              <Button
-                variant={optimisticVote.voteType === "red" ? "default" : "outline"}
-                size="sm"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handleVote("red")
-                }}
-                disabled={isVoting}
-                className={`neobrutal-button ${
-                  optimisticVote.voteType === "red"
-                    ? "bg-neobrutal-red text-white"
-                    : "border-neobrutal-red text-neobrutal-red hover:bg-neobrutal-red hover:text-white"
-                }`}
-              >
-                <ThumbsDown className="h-4 w-4 mr-1" />
-                {optimisticVote.redFlags}
-              </Button>
-            </div>
-          ) : (
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-1 text-neobrutal-green">
-                <ThumbsUp className="h-4 w-4" />
-                <span className="font-semibold">{post.green_flags}</span>
-              </div>
-              <div className="flex items-center space-x-1 text-neobrutal-red">
-                <ThumbsDown className="h-4 w-4" />
-                <span className="font-semibold">{post.red_flags}</span>
-              </div>
-            </div>
-          )}
-
+          {/* Comment count */}
           <Button
             variant="ghost"
             size="sm"
-            className="neobrutal-button-ghost"
+            className="text-white hover:bg-white/20 hover:text-white"
             onClick={(e) => {
               e.stopPropagation()
               router.push(`/post/${post.id}`)
@@ -292,7 +134,49 @@ export default function PostCard({ post, currentUserId, showVoting = true }: Pos
             {post.comment_count || 0}
           </Button>
         </div>
-      </CardContent>
+
+        {/* Post details overlay - bottom */}
+        <div className="absolute bottom-0 left-0 right-0 p-4 text-white">
+          <h3 className="text-xl font-bold mb-1 drop-shadow-lg">
+            {post.subject_name}, {post.subject_age}
+          </h3>
+          <p className="text-sm text-gray-300 drop-shadow-md mb-2">
+            {post.city}, {post.state}
+          </p>
+          {post.caption && <p className="text-sm text-white/90 drop-shadow-md line-clamp-2">{post.caption}</p>}
+        </div>
+      </div>
+
+      {/* Vote buttons footer */}
+      <div className="p-3 bg-neobrutal-background border-t-2 border-neobrutal-primary flex items-center justify-center space-x-4">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={(e) => {
+            e.stopPropagation()
+            handleVote("green")
+          }}
+          disabled={isPending}
+          className="neobrutal-button border-neobrutal-green text-neobrutal-green hover:bg-neobrutal-green hover:text-white flex-1"
+        >
+          <ThumbsUp className="h-4 w-4 mr-2" />
+          <span className="font-bold">{optimisticVotes.green}</span>
+        </Button>
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={(e) => {
+            e.stopPropagation()
+            handleVote("red")
+          }}
+          disabled={isPending}
+          className="neobrutal-button border-neobrutal-red text-neobrutal-red hover:bg-neobrutal-red hover:text-white flex-1"
+        >
+          <ThumbsDown className="h-4 w-4 mr-2" />
+          <span className="font-bold">{optimisticVotes.red}</span>
+        </Button>
+      </div>
     </Card>
   )
 }
