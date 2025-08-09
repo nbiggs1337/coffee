@@ -1,20 +1,24 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js"
 
-/**
- * Server-only Supabase admin client using the Service Role key.
- * IMPORTANT: Never import this in client components. It is for Server Actions and Route Handlers only.
- */
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+// This function creates a new Supabase client with admin privileges.
+// It should ONLY be used in server-side code (API routes, server actions).
+export function createSupabaseAdminClient(): SupabaseClient {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
-if (!url || !serviceRoleKey) {
-  throw new Error(
-    "Missing Supabase env vars. Ensure NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are set in the environment.",
-  )
+  // Check for essential environment variables.
+  if (!supabaseUrl || !supabaseServiceRoleKey) {
+    throw new Error(
+      "Missing Supabase environment variables for admin client. Ensure NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are set.",
+    )
+  }
+
+  // Create and return the admin client.
+  // The options are recommended for server-side clients.
+  return createClient(supabaseUrl, supabaseServiceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  })
 }
-
-// Create a single admin client instance.
-// Note: We disable session persistence since this runs on the server.
-export const supabaseAdmin: SupabaseClient = createClient(url, serviceRoleKey, {
-  auth: { persistSession: false, autoRefreshToken: false },
-})

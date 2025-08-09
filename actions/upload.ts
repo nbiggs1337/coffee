@@ -1,88 +1,85 @@
 "use server"
 
-import { supabaseAdmin } from "@/lib/supabase-admin"
+import { createSupabaseAdminClient } from "@/lib/supabase-admin"
 
-/**
- * Uploads a file to Supabase Storage using the admin (service role) client.
- * This works in production deployments and will create the bucket if it doesn't exist.
- */
 export async function uploadFile(
   formData: FormData,
-  bucket: string,
+  bucketName: string,
   folder?: string,
 ): Promise<{ success: boolean; url?: string; message: string }> {
+  const supabaseAdmin = createSupabaseAdminClient()
+  const file = formData.get("file") as File | null
+
+  if (!file) {
+    return { success: false, message: "No file provided." }
+  }
+
   try {
-    const file = formData.get("file") as File | null
-    if (!file) {
-      return { success: false, message: "No file provided" }
+    // 1. Validate file properties
+    if (!file.type.startsWith("image/")) {
+      return { success: false, message: "Invalid file type. Only images are allowed." }
     }
-
-    // Validate file type
-    if (!file.type || !file.type.startsWith("image/")) {
-      return { success: false, message: "File must be an image" }
-    }
-
-    // Validate file size (5MB max)
     if (file.size > 5 * 1024 * 1024) {
-      return { success: false, message: "File size must be less than 5MB" }
+      // 5MB limit
+      return { success: false, message: "File is too large. Maximum size is 5MB." }
     }
 
-    // Ensure bucket exists (admin privileges bypass RLS)
-    const { data: buckets, error: listErr } = await supabaseAdmin.storage.listBuckets()
-    if (listErr) {
-      console.error("uploadFile: listBuckets error:", listErr)
-      // Proceed to try creating the bucket if list fails (may be transient)
+    // 2. Ensure the storage bucket exists
+    const { data: buckets, error: listError } = await supabaseAdmin.storage.listBuckets()
+    if (listError) {
+      console.error("Upload Action: Error listing buckets:", listError)
+      throw new Error("Could not verify storage buckets.")
     }
-    const bucketExists = buckets?.some((b) => b.name === bucket) ?? false
 
+    const bucketExists = buckets.some((b) => b.name === bucketName)
     if (!bucketExists) {
-      const { error: createError } = await supabaseAdmin.storage.createBucket(bucket, {
+      const { error: createError } = await supabaseAdmin.storage.createBucket(bucketName, {
         public: true,
         allowedMimeTypes: ["image/*"],
-        // fileSizeLimit must be a string per Supabase API (bytes)
-        fileSizeLimit: String(5 * 1024 * 1024),
+        fileSizeLimit: "5mb",
       })
-      if (createError) {
-        // If bucket already exists race-conditionally, we can ignore specific codes,
-        // otherwise return a helpful message.
-        console.error("uploadFile: createBucket error:", createError)
-        return { success: false, message: `Failed to ensure storage bucket (${bucket}) exists.` }
+      // Gracefully handle the case where the bucket was created by a parallel request
+      if (createError && createError.message !== 'Bucket "verification-photos" already exists') {
+        console.error(`Upload Action: Error creating bucket "${bucketName}":`, createError)
+        throw new Error(`Could not create storage bucket.`)
       }
     }
 
-    // Generate unique filename and path
-    const fileExt = (file.name?.split(".").pop() || "jpg").toLowerCase()
-    const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`
+    // 3. Upload the file
+    const fileExt = file.name.split(".").pop() || "png"
+    const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`
     const filePath = folder ? `${folder}/${fileName}` : fileName
 
-    // Upload file
-    const { error: uploadError } = await supabaseAdmin.storage.from(bucket).upload(filePath, file, {
+    const { error: uploadError } = await supabaseAdmin.storage.from(bucketName).upload(filePath, file, {
+      contentType: file.type,
       cacheControl: "3600",
       upsert: false,
-      contentType: file.type,
     })
+
     if (uploadError) {
-      console.error("uploadFile: upload error:", uploadError)
-      return { success: false, message: "Upload failed. Please try again." }
+      console.error("Upload Action: Error uploading file:", uploadError)
+      throw new Error("Failed to upload file to storage.")
     }
 
-    // Get public URL
-    const { data: pub, error: pubErr } = supabaseAdmin.storage.from(bucket).getPublicUrl(filePath)
-    if (pubErr || !pub?.publicUrl) {
-      console.error("uploadFile: getPublicUrl error:", pubErr)
-      return { success: false, message: "File uploaded but failed to retrieve public URL." }
+    // 4. Get the public URL
+    const { data: urlData } = supabaseAdmin.storage.from(bucketName).getPublicUrl(filePath)
+
+    if (!urlData.publicUrl) {
+      console.error("Upload Action: Could not get public URL for file:", filePath)
+      throw new Error("File uploaded, but failed to create a public URL.")
     }
 
     return {
       success: true,
-      url: pub.publicUrl,
-      message: "File uploaded successfully",
+      url: urlData.publicUrl,
+      message: "File uploaded successfully.",
     }
-  } catch (error) {
-    console.error("uploadFile: unexpected error:", error)
+  } catch (error: any) {
+    console.error("Upload Action: An unexpected error occurred:", error)
+    // Return a generic but clear error message to the client
     return {
       success: false,
-      message: "Unexpected server error during upload. Please try again.",
+      message: error.message || "An unexpected server error occurred during upload.",
     }
   }
 }
