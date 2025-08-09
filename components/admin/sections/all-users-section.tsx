@@ -78,8 +78,10 @@ export default function AllUsersSection({ onStatsChange }: AllUsersSectionProps)
         throw new Error(`Failed to load users: ${errorText || response.statusText}`)
       }
 
-      const data: UserProfile[] = await response.json()
-      setUsers(data || [])
+      const data = await response.json()
+      // Ensure data is always an array
+      const usersArray = Array.isArray(data) ? data : []
+      setUsers(usersArray)
     } catch (error: any) {
       console.error("Error in loadUsers:", error)
       toast({
@@ -87,12 +89,20 @@ export default function AllUsersSection({ onStatsChange }: AllUsersSectionProps)
         description: error.message,
         variant: "destructive",
       })
+      // Set empty array on error to prevent map errors
+      setUsers([])
     } finally {
       setLoading(false)
     }
   }
 
   const filterUsers = () => {
+    // Ensure users is always an array before filtering
+    if (!Array.isArray(users)) {
+      setFilteredUsers([])
+      return
+    }
+
     let filtered = users
 
     // Search filter
@@ -268,114 +278,116 @@ export default function AllUsersSection({ onStatsChange }: AllUsersSectionProps)
 
       {/* Users List */}
       <div className="grid gap-4">
-        {filteredUsers.map((user) => (
-          <Card key={user.id} className="neobrutal-card">
-            <CardHeader>
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-4">
-                  <Avatar className="h-16 w-16 neobrutal-avatar">
-                    <AvatarImage
-                      src={
-                        user.avatar_url ||
-                        user.verification_photo_url ||
-                        "/placeholder.svg?height=64&width=64&query=user avatar" ||
-                        "/placeholder.svg" ||
-                        "/placeholder.svg"
-                      }
-                    />
-                    <AvatarFallback className="neobrutal-avatar-fallback text-lg">
-                      {(user.display_name || user.full_name || user.email)?.charAt(0)?.toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <UserIcon className="h-4 w-4 text-neobrutal-secondary" />
-                      <span className="font-bold text-lg">{user.display_name || user.full_name || "No name"}</span>
-                      {user.display_name && user.full_name && user.display_name !== user.full_name && (
-                        <span className="text-sm text-neobrutal-secondary">({user.full_name})</span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Mail className="h-4 w-4 text-neobrutal-secondary" />
-                      <span className="text-neobrutal-secondary">{user.email}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Calendar className="h-4 w-4 text-neobrutal-secondary" />
-                      <span className="text-sm text-neobrutal-secondary">
-                        Joined {format(new Date(user.created_at), "MMM d, yyyy")}
-                      </span>
+        {Array.isArray(filteredUsers) &&
+          filteredUsers.map((user) => (
+            <Card key={user.id} className="neobrutal-card">
+              <CardHeader>
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-4">
+                    <Avatar className="h-16 w-16 neobrutal-avatar">
+                      <AvatarImage
+                        src={
+                          user.avatar_url ||
+                          user.verification_photo_url ||
+                          "/placeholder.svg?height=64&width=64&query=user avatar" ||
+                          "/placeholder.svg" ||
+                          "/placeholder.svg" ||
+                          "/placeholder.svg"
+                        }
+                      />
+                      <AvatarFallback className="neobrutal-avatar-fallback text-lg">
+                        {(user.display_name || user.full_name || user.email)?.charAt(0)?.toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <UserIcon className="h-4 w-4 text-neobrutal-secondary" />
+                        <span className="font-bold text-lg">{user.display_name || user.full_name || "No name"}</span>
+                        {user.display_name && user.full_name && user.display_name !== user.full_name && (
+                          <span className="text-sm text-neobrutal-secondary">({user.full_name})</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Mail className="h-4 w-4 text-neobrutal-secondary" />
+                        <span className="text-neobrutal-secondary">{user.email}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Calendar className="h-4 w-4 text-neobrutal-secondary" />
+                        <span className="text-sm text-neobrutal-secondary">
+                          Joined {format(new Date(user.created_at), "MMM d, yyyy")}
+                        </span>
+                      </div>
                     </div>
                   </div>
+                  <div className="flex items-center gap-2">{getStatusBadge(user)}</div>
                 </div>
-                <div className="flex items-center gap-2">{getStatusBadge(user)}</div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center justify-between">
-                <div className="text-sm text-neobrutal-secondary">
-                  {user.phone_number && <p>Phone: {user.phone_number}</p>}
-                </div>
-                <div className="flex items-center gap-2">
-                  {!user.is_approved && !user.is_rejected && (
-                    <>
-                      <Button
-                        onClick={() => handleAction(user.id, "approve")}
-                        disabled={actionLoading[user.id]}
-                        size="sm"
-                        className="neobrutal-button bg-neobrutal-green text-white"
-                      >
-                        {actionLoading[user.id] ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Check className="h-4 w-4" />
-                        )}
-                      </Button>
-                      <Button
-                        onClick={() => handleAction(user.id, "reject")}
-                        disabled={actionLoading[user.id]}
-                        size="sm"
-                        className="neobrutal-button bg-neobrutal-red text-white"
-                      >
-                        {actionLoading[user.id] ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <X className="h-4 w-4" />
-                        )}
-                      </Button>
-                    </>
-                  )}
-                  <Button
-                    onClick={() => handleAction(user.id, "admin")}
-                    disabled={actionLoading[user.id]}
-                    size="sm"
-                    className={`neobrutal-button ${user.is_admin ? "bg-purple-500" : "bg-neobrutal-blue"} text-white`}
-                  >
-                    {actionLoading[user.id] ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Shield className="h-4 w-4" />
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center justify-between">
+                  <div className="text-sm text-neobrutal-secondary">
+                    {user.phone_number && <p>Phone: {user.phone_number}</p>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {!user.is_approved && !user.is_rejected && (
+                      <>
+                        <Button
+                          onClick={() => handleAction(user.id, "approve")}
+                          disabled={actionLoading[user.id]}
+                          size="sm"
+                          className="neobrutal-button bg-neobrutal-green text-white"
+                        >
+                          {actionLoading[user.id] ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Check className="h-4 w-4" />
+                          )}
+                        </Button>
+                        <Button
+                          onClick={() => handleAction(user.id, "reject")}
+                          disabled={actionLoading[user.id]}
+                          size="sm"
+                          className="neobrutal-button bg-neobrutal-red text-white"
+                        >
+                          {actionLoading[user.id] ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <X className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </>
                     )}
-                  </Button>
-                  <Button
-                    onClick={() => handleAction(user.id, "delete")}
-                    disabled={actionLoading[user.id]}
-                    size="sm"
-                    className="neobrutal-button bg-neobrutal-red text-white"
-                  >
-                    {actionLoading[user.id] ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Trash2 className="h-4 w-4" />
-                    )}
-                  </Button>
+                    <Button
+                      onClick={() => handleAction(user.id, "admin")}
+                      disabled={actionLoading[user.id]}
+                      size="sm"
+                      className={`neobrutal-button ${user.is_admin ? "bg-purple-500" : "bg-neobrutal-blue"} text-white`}
+                    >
+                      {actionLoading[user.id] ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Shield className="h-4 w-4" />
+                      )}
+                    </Button>
+                    <Button
+                      onClick={() => handleAction(user.id, "delete")}
+                      disabled={actionLoading[user.id]}
+                      size="sm"
+                      className="neobrutal-button bg-neobrutal-red text-white"
+                    >
+                      {actionLoading[user.id] ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+              </CardContent>
+            </Card>
+          ))}
       </div>
 
-      {filteredUsers.length === 0 && (
+      {(!Array.isArray(filteredUsers) || filteredUsers.length === 0) && (
         <Card className="neobrutal-card">
           <CardContent className="text-center p-8">
             <UserIcon className="h-16 w-16 text-neobrutal-secondary mx-auto mb-4" />
