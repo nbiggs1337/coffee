@@ -124,163 +124,128 @@ export default function AgreementPage() {
     if (fileInputRef.current) fileInputRef.current.value = ""
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-
-    if (!fullName.trim()) {
-      toast({ title: "Name required", description: "Please enter your full name.", variant: "destructive" })
-      return
-    }
-
-    if (!verificationPhotoFile && !photoPreview) {
-      toast({
-        title: "Photo required",
-        description: "Please upload a verification photo.",
-        variant: "destructive",
-      })
-      return
-    }
-
-    if (!agreedToTerms) {
-      toast({
-        title: "Terms required",
-        description: "Please agree to the terms and conditions.",
-        variant: "destructive",
-      })
-      return
-    }
-
-    if (!emailFromSignup) {
-      // Try to get email from current auth session as fallback
-      try {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser()
-        if (user?.email) {
-          setEmailFromSignup(user.email)
-          // Continue with the submission using the auth email
-          const emailToUse = user.email
-
-          // Continue with the rest of the submission logic...
-          const userIdToUse = tempUserId || user.id || crypto.randomUUID()
-
-          let photoUrl = photoPreview || ""
-          if (verificationPhotoFile) {
-            setIsUploading(true)
-            try {
-              const formData = new FormData()
-              formData.append("file", verificationPhotoFile)
-              const uploadResult = await uploadFile(formData, "verification-photos", `users/${userIdToUse}`)
-              if (!uploadResult.success || !uploadResult.url) {
-                throw new Error(uploadResult.message || "Upload failed.")
-              }
-              photoUrl = uploadResult.url
-            } catch (err: any) {
-              toast({ title: "Upload Failed", description: err?.message || "Upload error.", variant: "destructive" })
-              setIsUploading(false)
-              setIsSubmitting(false)
-              return
-            } finally {
-              setIsUploading(false)
-            }
-          }
-
-          // Create or update user record
-          try {
-            const { error: upsertError } = await supabase.from("users").upsert({
-              id: userIdToUse,
-              email: emailToUse,
-              full_name: fullName.trim(),
-              verification_photo_url: photoUrl,
-              agreed_to_terms: true,
-              is_approved: emailToUse === "nbiggs1337@gmail.com",
-              is_admin: emailToUse === "nbiggs1337@gmail.com",
-              is_rejected: false,
-              updated_at: new Date().toISOString(),
-            })
-
-            if (upsertError) {
-              throw new Error(upsertError.message)
-            }
-
-            toast({
-              title: "Profile Completed",
-              description: "Your information has been saved. Redirecting to pending approval...",
-            })
-
-            setTimeout(() => {
-              router.push(`/pending?email=${encodeURIComponent(emailToUse)}`)
-            }, 1500)
-
-            setIsSubmitting(false)
-            return
-          } catch (dbError: any) {
-            throw new Error(`Database error: ${dbError.message || "Failed to save profile"}`)
-          }
-        } else {
-          toast({
-            title: "Session Error",
-            description: "Please sign up again to continue.",
-            variant: "destructive",
-          })
-          router.push("/signup")
-          setIsSubmitting(false)
-          return
-        }
-      } catch (authError) {
-        toast({
-          title: "Session Error",
-          description: "Please sign up again to continue.",
-          variant: "destructive",
-        })
-        router.push("/signup")
-        setIsSubmitting(false)
+    ;(async () => {
+      // Validate required fields
+      if (!fullName.trim()) {
+        toast({ title: "Name required", description: "Please enter your full name.", variant: "destructive" })
         return
       }
-    }
 
-    setIsSubmitting(true)
-
-    try {
-      // Generate a user ID if we don't have one
-      const userIdToUse = tempUserId || crypto.randomUUID()
-      const emailToUse = emailFromSignup
-
-      let photoUrl = photoPreview || ""
-      if (verificationPhotoFile) {
-        setIsUploading(true)
-        try {
-          const formData = new FormData()
-          formData.append("file", verificationPhotoFile)
-          const uploadResult = await uploadFile(formData, "verification-photos", `users/${userIdToUse}`)
-          if (!uploadResult.success || !uploadResult.url) {
-            throw new Error(uploadResult.message || "Upload failed.")
-          }
-          photoUrl = uploadResult.url
-        } catch (err: any) {
-          toast({ title: "Upload Failed", description: err?.message || "Upload error.", variant: "destructive" })
-          setIsUploading(false)
-          setIsSubmitting(false)
-          return
-        } finally {
-          setIsUploading(false)
-        }
+      if (!verificationPhotoFile && !photoPreview) {
+        toast({
+          title: "Photo required",
+          description: "Please upload a verification photo.",
+          variant: "destructive",
+        })
+        return
       }
 
-      // Create or update user record
+      if (!agreedToTerms) {
+        toast({
+          title: "Terms required",
+          description: "Please agree to the terms and conditions.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      setIsSubmitting(true)
+
       try {
-        const { error: upsertError } = await supabase.from("users").upsert({
+        // Always try to resolve the real authenticated user first
+        let authUserId: string | undefined
+        let authEmail: string | undefined
+        try {
+          const {
+            data: { user },
+          } = await supabase.auth.getUser()
+          authUserId = user?.id
+          authEmail = user?.email || undefined
+        } catch {
+          // ignore – we’ll fallback to email lookup
+        }
+
+        // Determine email to use
+        const emailToUse = (authEmail || emailFromSignup || "").trim()
+        if (!emailToUse) {
+          toast({
+            title: "Session Error",
+            description: "Please log in to complete your profile.",
+            variant: "destructive",
+          })
+          router.push("/login")
+          setIsSubmitting(false)
+          return
+        }
+
+        // Resolve the target user id – prefer auth user id, then any temp id previously loaded, then lookup by email
+        let userIdToUse = authUserId || tempUserId
+        if (!userIdToUse) {
+          const { data: existingUser, error: lookupErr } = await supabase
+            .from("users")
+            .select("id")
+            .eq("email", emailToUse)
+            .maybeSingle()
+          if (lookupErr) {
+            // not fatal; we continue only if we got an id
+            console.log("User lookup by email failed (non-fatal):", lookupErr)
+          }
+          if (existingUser?.id) {
+            userIdToUse = existingUser.id
+          }
+        }
+
+        // If we still do not have a deterministic user id, we should not create a random row.
+        if (!userIdToUse) {
+          toast({
+            title: "Session Error",
+            description: "Please log in to complete your profile.",
+            variant: "destructive",
+          })
+          router.push("/login")
+          setIsSubmitting(false)
+          return
+        }
+
+        // Upload verification photo if needed
+        let photoUrl = photoPreview || ""
+        if (verificationPhotoFile) {
+          setIsUploading(true)
+          try {
+            const formData = new FormData()
+            formData.append("file", verificationPhotoFile)
+            const uploadResult = await uploadFile(formData, "verification-photos", `users/${userIdToUse}`)
+            if (!uploadResult.success || !uploadResult.url) {
+              throw new Error(uploadResult.message || "Upload failed.")
+            }
+            photoUrl = uploadResult.url
+          } catch (err: any) {
+            toast({ title: "Upload Failed", description: err?.message || "Upload error.", variant: "destructive" })
+            setIsUploading(false)
+            setIsSubmitting(false)
+            return
+          } finally {
+            setIsUploading(false)
+          }
+        }
+
+        // Upsert the same, real user row. Never generate a new UUID.
+        const payload = {
           id: userIdToUse,
           email: emailToUse,
           full_name: fullName.trim(),
           verification_photo_url: photoUrl,
           agreed_to_terms: true,
-          // Only auto-approve the admin email
+          // Keep existing admin auto-approval by email, if needed
           is_approved: emailToUse === "nbiggs1337@gmail.com",
           is_admin: emailToUse === "nbiggs1337@gmail.com",
           is_rejected: false,
           updated_at: new Date().toISOString(),
-        })
+        }
+
+        const { error: upsertError } = await supabase.from("users").upsert(payload)
 
         if (upsertError) {
           throw new Error(upsertError.message)
@@ -291,19 +256,16 @@ export default function AgreementPage() {
           description: "Your information has been saved. Redirecting to pending approval...",
         })
 
-        // Redirect to pending with email parameter to avoid auth issues
         setTimeout(() => {
           router.push(`/pending?email=${encodeURIComponent(emailToUse)}`)
         }, 1500)
-      } catch (dbError: any) {
-        throw new Error(`Database error: ${dbError.message || "Failed to save profile"}`)
+      } catch (err: any) {
+        console.error("Save error:", err)
+        toast({ title: "Save Failed", description: err?.message || "Unexpected error.", variant: "destructive" })
+      } finally {
+        setIsSubmitting(false)
       }
-    } catch (err: any) {
-      console.error("Save error:", err)
-      toast({ title: "Save Failed", description: err?.message || "Unexpected error.", variant: "destructive" })
-    } finally {
-      setIsSubmitting(false)
-    }
+    })()
   }
 
   if (isLoading) {
