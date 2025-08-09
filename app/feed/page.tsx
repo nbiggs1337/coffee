@@ -8,6 +8,7 @@ import { redirect } from "next/navigation"
 export default async function FeedPage() {
   const supabase = createSupabaseServerClient()
 
+  // Server-side auth guard; middleware keeps session fresh [^5]
   const {
     data: { user },
   } = await supabase.auth.getUser()
@@ -33,9 +34,9 @@ export default async function FeedPage() {
           </div>
         }
       >
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {posts?.map((post: Post) => (
-            <PostCard key={post.id} post={post} currentUserId={user.id} />
+            <PostCard key={post.id} post={post} />
           ))}
         </div>
       </Suspense>
