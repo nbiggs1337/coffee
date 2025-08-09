@@ -58,3 +58,6 @@ export const createSupabaseAdminClient = cache((): SupabaseClient => {
     },
   })
 })
+
+// Named export for backward compatibility
+export const supabaseAdmin = createSupabaseAdminClient()

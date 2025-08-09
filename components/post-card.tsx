@@ -1,19 +1,36 @@
 "use client"
 
 import type React from "react"
-
 import { useState, useTransition } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { ThumbsUp, ThumbsDown, MessageCircle, User } from "lucide-react"
+import { ThumbsUp, ThumbsDown, MessageCircle, MapPin, Phone, User } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useToast } from "@/components/ui/use-toast"
 import { voteOnPost } from "@/actions/votes"
-import type { Post } from "@/lib/supabase"
+import type { Post } from "@/lib/types"
 
 interface PostCardProps {
-  post: Post
+  post: Post & {
+    users?: {
+      id: string
+      display_name?: string
+      full_name?: string
+      avatar_url?: string
+    }
+    votes?: Array<{
+      id: string
+      user_id: string
+      vote_type: "green" | "red"
+    }>
+    _count?: {
+      comments: number
+    }
+    green_flags?: number
+    red_flags?: number
+    comment_count?: number
+  }
   currentUserId?: string
 }
 
@@ -21,37 +38,68 @@ export default function PostCard({ post, currentUserId }: PostCardProps) {
   const router = useRouter()
   const { toast } = useToast()
   const [isPending, startTransition] = useTransition()
-  const [optimisticVotes, setOptimisticVotes] = useState({
-    green: post.green_flags || 0,
-    red: post.red_flags || 0,
-  })
+  const [localVotes, setLocalVotes] = useState(post.votes || [])
+
+  const greenVotes = post.green_flags || localVotes.filter((vote) => vote.vote_type === "green").length
+  const redVotes = post.red_flags || localVotes.filter((vote) => vote.vote_type === "red").length
+  const userVote = currentUserId ? localVotes.find((vote) => vote.user_id === currentUserId) : null
+  const commentCount = post.comment_count || post._count?.comments || 0
 
   const handleVote = (voteType: "green" | "red") => {
-    if (!currentUserId) return
-
-    // Optimistic update
-    setOptimisticVotes((prev) => ({
-      ...prev,
-      [voteType]: prev[voteType] + 1,
-    }))
+    if (!currentUserId) {
+      toast({
+        title: "Authentication required",
+        description: "Please log in to vote on posts.",
+        variant: "destructive",
+      })
+      return
+    }
 
     startTransition(async () => {
+      // Optimistic update
+      setLocalVotes((prevVotes) => {
+        const existingVoteIndex = prevVotes.findIndex((vote) => vote.user_id === currentUserId)
+
+        if (existingVoteIndex >= 0) {
+          const existingVote = prevVotes[existingVoteIndex]
+          if (existingVote.vote_type === voteType) {
+            // Remove vote if clicking same type
+            return prevVotes.filter((vote) => vote.user_id !== currentUserId)
+          } else {
+            // Change vote type
+            return prevVotes.map((vote) => (vote.user_id === currentUserId ? { ...vote, vote_type: voteType } : vote))
+          }
+        } else {
+          // Add new vote
+          return [
+            ...prevVotes,
+            {
+              id: `temp-${Date.now()}`,
+              user_id: currentUserId,
+              vote_type: voteType,
+            },
+          ]
+        }
+      })
+
       try {
-        await voteOnPost(post.id, voteType)
-        toast({
-          title: voteType === "green" ? "💚 Green Flag!" : "❤️ Red Flag!",
-          description: `Your ${voteType === "green" ? "green flag" : "red flag"} has been recorded.`,
-          className: `neobrutal-card ${voteType === "green" ? "bg-neobrutal-green" : "bg-neobrutal-red"} text-white border-neobrutal-primary`,
-        })
-      } catch (error: any) {
+        const result = await voteOnPost(post.id, voteType)
+
+        if (result.success) {
+          toast({
+            title: voteType === "green" ? "💚 Green Flag!" : "❤️ Red Flag!",
+            description: `Your ${voteType === "green" ? "green flag" : "red flag"} has been recorded.`,
+            className: `neobrutal-card ${voteType === "green" ? "bg-neobrutal-green" : "bg-neobrutal-red"} text-white border-neobrutal-primary`,
+          })
+        } else {
+          throw new Error(result.error || "Failed to vote")
+        }
+      } catch (error) {
         // Revert optimistic update on error
-        setOptimisticVotes({
-          green: post.green_flags || 0,
-          red: post.red_flags || 0,
-        })
+        setLocalVotes(post.votes || [])
         toast({
           title: "❌ Vote Failed",
-          description: error.message || "Unable to record your vote. Please try again.",
+          description: error instanceof Error ? error.message : "Failed to record vote. Please try again.",
           variant: "destructive",
         })
       }
@@ -61,16 +109,16 @@ export default function PostCard({ post, currentUserId }: PostCardProps) {
   const handleAvatarClick = (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    if (post.user?.id) {
-      router.push(`/user/${post.user.id}`)
+    if (post.users?.id) {
+      router.push(`/user/${post.users.id}`)
     }
   }
 
   const handleUsernameClick = (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    if (post.user?.id) {
-      router.push(`/user/${post.user.id}`)
+    if (post.users?.id) {
+      router.push(`/user/${post.users.id}`)
     }
   }
 
@@ -79,8 +127,8 @@ export default function PostCard({ post, currentUserId }: PostCardProps) {
   }
 
   const primaryPhoto = post.photos?.[0] || `/placeholder.svg?height=500&width=400&query=post+about+${post.subject_name}`
-  const userDisplayName = post.user?.display_name || post.user?.full_name || "Anonymous"
-  const userAvatarUrl = post.user?.avatar_url || "/diverse-user-avatars.png"
+  const userDisplayName = post.users?.display_name || post.users?.full_name || "Anonymous"
+  const userAvatarUrl = post.users?.avatar_url || "/diverse-user-avatars.png"
 
   return (
     <Card
@@ -131,7 +179,7 @@ export default function PostCard({ post, currentUserId }: PostCardProps) {
             }}
           >
             <MessageCircle className="h-4 w-4 mr-1" />
-            {post.comment_count || 0}
+            {commentCount}
           </Button>
         </div>
 
@@ -140,9 +188,20 @@ export default function PostCard({ post, currentUserId }: PostCardProps) {
           <h3 className="text-xl font-bold mb-1 drop-shadow-lg">
             {post.subject_name}, {post.subject_age}
           </h3>
-          <p className="text-sm text-gray-300 drop-shadow-md mb-2">
-            {post.city}, {post.state}
-          </p>
+          <div className="flex items-center space-x-4 mb-2">
+            <div className="flex items-center space-x-1">
+              <MapPin className="h-3 w-3" />
+              <p className="text-sm text-gray-300 drop-shadow-md">
+                {post.city}, {post.state}
+              </p>
+            </div>
+            {post.phone_number && (
+              <div className="flex items-center space-x-1">
+                <Phone className="h-3 w-3" />
+                <p className="text-sm text-gray-300 drop-shadow-md">{post.phone_number}</p>
+              </div>
+            )}
+          </div>
           {post.caption && <p className="text-sm text-white/90 drop-shadow-md line-clamp-2">{post.caption}</p>}
         </div>
       </div>
@@ -160,7 +219,7 @@ export default function PostCard({ post, currentUserId }: PostCardProps) {
           className="neobrutal-button border-neobrutal-green text-neobrutal-green hover:bg-neobrutal-green hover:text-white flex-1"
         >
           <ThumbsUp className="h-4 w-4 mr-2" />
-          <span className="font-bold">{optimisticVotes.green}</span>
+          <span className="font-bold">{greenVotes}</span>
         </Button>
 
         <Button
@@ -174,7 +233,7 @@ export default function PostCard({ post, currentUserId }: PostCardProps) {
           className="neobrutal-button border-neobrutal-red text-neobrutal-red hover:bg-neobrutal-red hover:text-white flex-1"
         >
           <ThumbsDown className="h-4 w-4 mr-2" />
-          <span className="font-bold">{optimisticVotes.red}</span>
+          <span className="font-bold">{redVotes}</span>
         </Button>
       </div>
     </Card>

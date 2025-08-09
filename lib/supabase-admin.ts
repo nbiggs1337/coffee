@@ -33,3 +33,6 @@ export function createSupabaseAdminClient(): SupabaseClient {
 
   return adminSupabase
 }
+
+// Named export for backward compatibility
+export const supabaseAdmin = createSupabaseAdminClient()

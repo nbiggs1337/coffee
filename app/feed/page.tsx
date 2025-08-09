@@ -14,12 +14,36 @@ export default async function FeedPage() {
     redirect("/login")
   }
 
+  // Get user profile to check approval status
+  const { data: userProfile } = await supabase
+    .from("users")
+    .select("is_approved, is_rejected, agreed_to_terms")
+    .eq("id", user.id)
+    .single()
+
+  if (!userProfile?.agreed_to_terms) {
+    redirect("/agreement")
+  }
+
+  if (userProfile?.is_rejected) {
+    redirect("/pending")
+  }
+
+  if (!userProfile?.is_approved) {
+    redirect("/pending")
+  }
+
   // Fetch posts with user data
   const { data: posts, error } = await supabase
     .from("posts")
     .select(`
       *,
-      user:users(id, display_name, full_name, avatar_url)
+      users (
+        id,
+        display_name,
+        full_name,
+        avatar_url
+      )
     `)
     .order("created_at", { ascending: false })
 
