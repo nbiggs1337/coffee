@@ -1,36 +1,36 @@
-// Universal module that provides a BROWSER Supabase client for Client Components.
-// Do not import this in Server Components; use "@/lib/supabase-server" instead.
+// lib/supabase.ts
+// This file provides a singleton instance of the Supabase client for the browser.
+// It is safe to import and use in any client component.
 
 import { createBrowserClient } from "@supabase/ssr"
 import type { SupabaseClient } from "@supabase/supabase-js"
 
-// This ensures we have only one instance of the client in the browser.
-let clientInstance: SupabaseClient | undefined
+// Declare a global variable to hold the client instance.
+// We use a 'let' so it can be initialized once.
+let supabaseSingleton: SupabaseClient | undefined = undefined
 
-function getSupabaseBrowserClient() {
-  if (clientInstance) {
-    return clientInstance
+function createSupabaseClient() {
+  // If the client is already created, return it.
+  if (supabaseSingleton) {
+    return supabaseSingleton
   }
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  // If not created, create a new one.
+  // These environment variables must be available in the browser.
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-  if (!url || !anonKey) {
+  if (!supabaseUrl || !supabaseAnonKey) {
     throw new Error(
-      "Missing Supabase environment variables. NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are required.",
+      "Supabase environment variables are not set. Please check NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.",
     )
   }
 
-  clientInstance = createBrowserClient(url, anonKey)
-
-  return clientInstance
+  supabaseSingleton = createBrowserClient(supabaseUrl, supabaseAnonKey)
+  return supabaseSingleton
 }
 
-// This is the function to be used in client components to get the singleton instance.
-export function createClient() {
-  return getSupabaseBrowserClient()
+// The main export is a function that returns the singleton instance.
+export const createClient = () => {
+  return createSupabaseClient()
 }
-
-// This is for backward compatibility for any imports like `import { supabase } from ...`
-// It's guarded to only run in the browser, preventing SSR errors.
-export const supabase = typeof window !== "undefined" ? createClient() : (null as unknown as SupabaseClient)

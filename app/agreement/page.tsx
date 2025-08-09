@@ -22,7 +22,7 @@ export default function AgreementPage() {
   const [isUploading, setIsUploading] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [emailFromSignup, setEmailFromSignup] = useState("")
-  const [tempUserId, setTempUserId] = useState("")
+  const [userId, setUserId] = useState("")
   const [agreedToTerms, setAgreedToTerms] = useState(false)
   const [showTerms, setShowTerms] = useState(false)
 
@@ -30,104 +30,107 @@ export default function AgreementPage() {
   const { toast } = useToast()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const searchParams = useSearchParams()
-  const supabase = createClient()
 
   useEffect(() => {
-    let isMounted = true // Flag to prevent state updates on unmounted component
+    let isMounted = true
 
-    const loadInitialData = async () => {
-      console.log("AgreementPage: Starting to load initial data.")
+    const initializePage = async () => {
       try {
-        const emailParam = searchParams.get("email")
-        let emailToUse = emailParam
+        console.log("AgreementPage: Initialization started.")
 
-        // 1. Determine the user's email
-        if (!emailToUse) {
-          const {
-            data: { user },
-            error: authError,
-          } = await supabase.auth.getUser()
-          if (authError) {
-            console.error("Auth error on agreement page:", authError.message)
-            // Don't throw, maybe we can still find a user
-          }
-          emailToUse = user?.email || null
+        // Explicitly check for environment variables
+        if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+          throw new Error("Supabase environment variables are not configured on the client.")
+        }
+
+        const supabase = createClient()
+        const emailParam = searchParams.get("email")
+        let finalEmail: string | null = emailParam
+
+        // Step 1: Get the authenticated user
+        const {
+          data: { user },
+          error: authError,
+        } = await supabase.auth.getUser()
+
+        if (authError) {
+          console.warn("Auth error during initialization:", authError.message)
         }
 
         if (!isMounted) return
 
-        // 2. If no email, we can't proceed. Redirect to login.
-        if (!emailToUse) {
-          console.log("AgreementPage: No email found. Redirecting to login.")
+        // Use the authenticated user's email if available and no param is set
+        if (user?.email && !finalEmail) {
+          finalEmail = user.email
+        }
+
+        // If still no email, we cannot proceed.
+        if (!finalEmail) {
           toast({
-            title: "Session not found",
-            description: "Please log in or sign up to continue.",
+            title: "Session Expired",
+            description: "Please log in to continue.",
             variant: "destructive",
           })
           router.replace("/login")
-          return // Stop execution
+          return
         }
 
-        setEmailFromSignup(emailToUse)
+        setEmailFromSignup(finalEmail)
 
-        // 3. Fetch user profile from the database
-        const { data: userData, error: userError } = await supabase
+        // Step 2: Fetch the corresponding profile from the database
+        const { data: profile, error: profileError } = await supabase
           .from("users")
           .select("id, full_name, verification_photo_url, agreed_to_terms")
-          .eq("email", emailToUse)
+          .eq("email", finalEmail)
           .maybeSingle()
+
+        if (profileError) {
+          // This is not a fatal error, the profile might not exist yet.
+          console.warn("Could not fetch profile:", profileError.message)
+        }
 
         if (!isMounted) return
 
-        if (userError) {
-          console.error("Error fetching user profile:", userError.message)
-          // This is not fatal, maybe the user row doesn't exist yet.
+        // Step 3: Check if the user has already completed the agreement
+        if (profile?.agreed_to_terms && profile?.full_name && profile?.verification_photo_url) {
+          toast({ title: "Profile already complete", description: "Redirecting..." })
+          router.replace(`/pending?email=${encodeURIComponent(finalEmail)}`)
+          return
         }
 
-        // 4. If user data exists, populate the form or redirect if already completed
-        if (userData) {
-          console.log("AgreementPage: Found existing user data.")
-          // If profile is fully complete, redirect to pending page
-          if (userData.agreed_to_terms && userData.full_name && userData.verification_photo_url) {
-            console.log("AgreementPage: Profile complete. Redirecting to pending.")
-            router.replace(`/pending?email=${encodeURIComponent(emailToUse)}`)
-            return // Stop execution
-          }
-          // Otherwise, pre-fill the form
-          setTempUserId(userData.id)
-          setFullName(userData.full_name || "")
-          if (userData.verification_photo_url) {
-            setPhotoPreview(userData.verification_photo_url)
-          }
-        } else {
-          console.log("AgreementPage: No existing user data found for this email.")
+        // Step 4: Pre-fill the form with existing data
+        if (profile) {
+          setUserId(profile.id)
+          setFullName(profile.full_name || "")
+          setPhotoPreview(profile.verification_photo_url || null)
+        } else if (user) {
+          // If no profile exists yet, but we have an auth user, use their ID.
+          setUserId(user.id)
         }
-      } catch (error) {
-        console.error("An unexpected error occurred during initial data load:", error)
+      } catch (error: any) {
+        console.error("CRITICAL ERROR in AgreementPage initialization:", error)
         if (isMounted) {
           toast({
-            title: "An unexpected error occurred",
-            description: "Please refresh the page and try again.",
+            title: "A critical error occurred",
+            description: error.message || "Please refresh the page.",
             variant: "destructive",
           })
         }
       } finally {
-        // 5. This is the crucial part: always stop loading if the component is still mounted.
+        // This block is guaranteed to run, ending the loading state.
         if (isMounted) {
-          console.log("AgreementPage: Finished loading data. Setting isLoading to false.")
+          console.log("AgreementPage: Initialization finished.")
           setIsLoading(false)
         }
       }
     }
 
-    loadInitialData()
+    initializePage()
 
-    // Cleanup function to set the flag when the component unmounts
     return () => {
       isMounted = false
-      console.log("AgreementPage: Component unmounted.")
     }
-  }, []) // <-- Empty dependency array ensures this runs ONLY ONCE.
+  }, []) // Empty array ensures this effect runs only once.
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -178,35 +181,27 @@ export default function AgreementPage() {
       return
     }
 
+    if (!userId || !emailFromSignup) {
+      toast({
+        title: "Session Error",
+        description: "User information is missing. Please log in again.",
+        variant: "destructive",
+      })
+      router.push("/login")
+      return
+    }
+
     setIsSubmitting(true)
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-
-      const emailToUse = user?.email || emailFromSignup
-      const userIdToUse = user?.id || tempUserId
-
-      if (!userIdToUse || !emailToUse) {
-        toast({
-          title: "Session Error",
-          description: "Could not find user. Please log in again.",
-          variant: "destructive",
-        })
-        router.push("/login")
-        setIsSubmitting(false)
-        return
-      }
-
       let photoUrl = photoPreview || ""
       if (verificationPhotoFile) {
         setIsUploading(true)
         try {
           const formData = new FormData()
           formData.append("file", verificationPhotoFile)
-          const uploadResult = await uploadFile(formData, "verification-photos", `users/${userIdToUse}`)
+          const uploadResult = await uploadFile(formData, "verification-photos", `users/${userId}`)
           if (!uploadResult.success || !uploadResult.url) {
-            throw new Error(uploadResult.message || "Upload failed.")
+            throw new Error(uploadResult.message || "Photo upload failed.")
           }
           photoUrl = uploadResult.url
         } finally {
@@ -214,14 +209,15 @@ export default function AgreementPage() {
         }
       }
 
+      const supabase = createClient()
       const { error: upsertError } = await supabase.from("users").upsert({
-        id: userIdToUse,
-        email: emailToUse,
+        id: userId,
+        email: emailFromSignup,
         full_name: fullName.trim(),
         verification_photo_url: photoUrl,
         agreed_to_terms: true,
-        is_approved: emailToUse === "nbiggs1337@gmail.com",
-        is_admin: emailToUse === "nbiggs1337@gmail.com",
+        is_approved: emailFromSignup === "nbiggs1337@gmail.com",
+        is_admin: emailFromSignup === "nbiggs1337@gmail.com",
         is_rejected: false,
         updated_at: new Date().toISOString(),
       })
@@ -232,11 +228,11 @@ export default function AgreementPage() {
         title: "Profile Completed",
         description: "Your information has been saved. Redirecting...",
       })
-      router.push(`/pending?email=${encodeURIComponent(emailToUse)}`)
+      router.push(`/pending?email=${encodeURIComponent(emailFromSignup)}`)
     } catch (err: any) {
-      console.error("Save error:", err)
+      console.error("Submit error:", err)
       toast({
-        title: "Save Failed",
+        title: "Submission Failed",
         description: err.message || "An unexpected error occurred.",
         variant: "destructive",
       })
